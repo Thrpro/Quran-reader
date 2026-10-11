@@ -1,0 +1,44 @@
+/* Keep fullscreen access outside the Quran reading area. */
+.fullscreenAccess {
+  position: absolute; z-index: 15; left: 8px; top: 12px; width: 144px;
+  display: grid; gap: 8px;
+}
+.fullscreenAccess button {
+  min-height: 44px; padding: 8px; border: 1px solid var(--control-border);
+  border-radius: 8px; background: var(--surface); color: var(--text);
+  font: 13px/1.4 "Segoe UI", Tahoma, sans-serif; cursor: pointer;
+}
+.appShell.fullscreenReader .readerViewport { left: 160px; }
+.fullscreenReader .sideNavNext { left: 160px; }
+@media (max-width: 1100px) {
+  .fullscreenAccess { top: auto; bottom: 0; left: 0; width: 100%; display: flex; justify-content: center; padding: 4px; background: var(--bg); }
+  .fullscreenAccess button { min-height: 40px; }
+  .appShell.fullscreenReader .readerViewport { left: 0; bottom: 48px; }
+  .appShell.fullscreenReader.studyOpen .readerViewport { bottom: 48%; }
+  .fullscreenReader .ayahStudyPanel { bottom: 52px; }
+  .fullscreenReader .sideNavNext { left: 0; }
+}
+@media (min-width: 1101px) {
+  .appShell.fullscreenReader .floatingControls {
+    top: 120px; left: 8px; right: auto; width: 144px; max-width: 144px;
+    flex-direction: column; align-items: stretch; transform: translateY(-8px);
+  }
+  .appShell.fullscreenReader.controlsVisible .floatingControls { transform: none; }
+  .fullscreenReader .floatingControls .readingToolsDock { display: flex; flex-direction: column; align-items: stretch; margin: 0; padding: 0; border: 0; }
+  .fullscreenReader .floatingControls button { min-height: 44px; width: 100%; justify-content: center; }
+  .fullscreenReader .floatingControls .fullscreenControl { display: none; }
+}
+
+@media (min-width: 1101px) {
+  .appShell.fullscreenReader:not(.studyOpen) .readerViewport { left: 160px; right: 160px; --reader-x-offset: 0; }
+  .fullscreenReader:not(.studyOpen) .sideNavPrevious { right: 160px; }
+}
+
+.appShell.fullscreenReader .readerViewport { align-items: center; }
+.appShell.fullscreenReader.studyOpen .readerViewport { left: 0; }
+.fullscreenReader.studyOpen .floatingControls { display: none; }
+.fullscreenReader.studyOpen .sideNavNext { left: 0.7rem; }
+.tafsirPanelHeader .studyExitFullscreen { width: auto; min-height: 40px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+@media (max-width: 1100px) {
+  .fullscreenReader.studyOpen .ayahStudyPanel { bottom: 8px; }
+}

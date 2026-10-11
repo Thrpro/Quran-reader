@@ -1,0 +1,2295 @@
+:root {
+  color-scheme: dark light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: #202020;
+  color: #f2f2f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+@font-face {
+  font-family: "QUL Surah Name V4";
+  src: url("/fonts/surah-names/v4/surah_names.woff2") format("woff2");
+  font-display: block;
+}
+
+@font-face {
+  font-family: "QUL Surah Header Color";
+  src: url("/fonts/surah-header/QCF_SurahHeader_COLOR-Regular.woff2") format("woff2");
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Digital Khatt V2";
+  src: url("/fonts/digital-khatt/DigitalKhattV2.otf") format("opentype");
+  font-display: block;
+  font-style: normal;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.appShell {
+  --bg: #202020;
+  --surface: #242424;
+  --page-bg: #1f1f1f;
+  --control-bg: #2a2a2a;
+  --control-active: #3a3a3a;
+  --control-border: #3d4654;
+  --text: #f7f7f7;
+  --mushaf-text: #fbfbfb;
+  --muted: #b8b8b8;
+  --accent: #6fb99a;
+  --surah-ornament: #a9b9b1;
+  --surah-title: #f4f5f2;
+  --surah-header-filter: grayscale(1) invert(1) contrast(1.25);
+  --surah-header-blend: screen;
+  --page-shadow: rgb(0 0 0 / 28%);
+  --page-edge: color-mix(in srgb, var(--control-border) 54%, transparent);
+  --gutter-shadow: rgb(0 0 0 / 32%);
+  --digital-khatt-line-filter: invert(1) brightness(1.08);
+  --manual-text-scale: 1.45;
+  --reader-fit-scale: 1;
+  --reader-x-offset: clamp(-0.8rem, -1vw, -0.2rem);
+  --reader-y-offset: 0;
+  --reader-status-reserve: 0rem;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Ease both ends of the palette change while keeping geometry unchanged. */
+.appShell,
+.readerViewport,
+.qulPage,
+.panel,
+.ayahStudyPanel,
+.readerTips,
+.sideToolsAccess,
+.appShell button,
+.appShell input,
+.appShell select {
+  transition: background-color 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appShell,
+  .readerViewport,
+  .qulPage,
+  .panel,
+  .ayahStudyPanel,
+  .readerTips,
+  .sideToolsAccess,
+  .appShell button,
+  .appShell input,
+  .appShell select {
+    transition: none;
+  }
+}
+
+.appShell:focus {
+  outline: none;
+}
+
+.sideToolsAccess {
+  position: absolute; z-index: 16; left: 8px; top: 18%;
+  width: 70px; height: auto; min-height: 48px; padding: 8px 4px;
+  display: none; gap: 4px; justify-items: center;
+  background: var(--surface); color: var(--muted);
+  border-color: var(--control-border); font-size: 12px;
+}
+.sideToolsAccess > span:first-child { font-size: 19px; }
+@media (min-width: 1800px) {
+  .sideToolsAccess { display: grid; }
+  .appShell:not(.fullscreenReader):not(.studyOpen) .floatingControls {
+    left: 8px; right: auto; top: calc(18% + 90px); width: 140px; max-width: 140px;
+    flex-direction: column; align-items: stretch; transform: translateY(-8px);
+  }
+  .appShell.controlsVisible:not(.fullscreenReader):not(.studyOpen) .floatingControls { transform: none; }
+  .appShell:not(.fullscreenReader):not(.studyOpen) .floatingControls .readingToolsDock {
+    display: flex; flex-direction: column; align-items: stretch; margin: 0; padding: 0; border: 0;
+  }
+  .appShell:not(.fullscreenReader):not(.studyOpen) .floatingControls button { min-height: 38px; width: 100%; justify-content: center; }
+}
+
+.jumpPanel [hidden] { display: none !important; }
+.browseTabs { margin-bottom: 18px; }
+.jumpPanel .surahList { max-height: 48vh; }
+
+:is(.studyOpen, .studyClosing) { --study-rail-width: clamp(24rem, 27vw, 32rem); --study-width: clamp(22rem, 23vw, 26rem); --reader-x-offset: 0; }
+.studyOpen .readerViewport { right: var(--study-rail-width); padding-inline: 0.75rem; align-items: center; }
+:is(.studyOpen, .studyClosing) .ayahStudyPanel { width: var(--study-width); right: calc((var(--study-rail-width) - var(--study-width)) / 2); top: 50%; bottom: auto; height: min(88vh, 54rem); max-height: calc(100% - 2rem); transform: translateY(-50%); display: flex; flex-direction: column; overflow: hidden; border-radius: 14px; box-shadow: 0 8px 30px rgb(0 0 0 / 15%); }
+.ayahStudyPanel .studyBody { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.ayahStudyPanel .tafsirPanelHeader { position: static; min-height: 2.7rem; box-sizing: border-box; flex-shrink: 0; padding: 7px 12px; align-items: center; backdrop-filter: none; }
+.ayahStudyPanel .tafsirPanelHeader h2 { margin: 0; font-size: 0.9rem; font-weight: 620; }
+.ayahStudyPanel .studyNavigation { flex-shrink: 0; padding: 7px 12px; gap: 0; }
+.ayahStudyPanel .studyVerse { margin: 12px 16px 0; padding: 12px 16px; }
+.ayahStudyPanel .studyVerse p { font-size: 23px; line-height: 1.85; margin-bottom: 0; }
+.ayahStudyPanel .tafsirContentSection { padding: 12px 16px; border-bottom: 0; }
+.ayahStudyPanel .tafsirSectionHeading { gap: 6px; margin-bottom: 10px; }
+.ayahStudyPanel .tafsirAttribution { margin: 1.25rem 16px 0; padding: 12px 0 16px; border-top: 1px solid color-mix(in srgb, var(--control-border) 68%, transparent); }
+.studyVerse { margin: 16px; padding: 20px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--control-border)); border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); text-align: center; }
+.studyVerse p { margin: 0 0 12px; font-family: "Digital Khatt V2", serif; font-size: 25px; line-height: 2.1; }
+.studyVerse small { color: var(--muted); }
+.readingToolsDock .sessionActive { color: var(--text); border-color: var(--accent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 32%, transparent); }
+.sessionHint, .navigationHint { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.readerTips { position: absolute; z-index: 10; bottom: 18px; left: 50%; transform: translateX(-50%); width: min(470px, calc(100% - 32px)); box-sizing: border-box; padding: 16px 20px; border: 1px solid var(--control-border); border-radius: 14px; background: var(--surface); box-shadow: 0 8px 30px rgb(0 0 0 / 24%); }
+.readerTips p { font-size: 13px; line-height: 1.65; color: var(--muted); margin: 8px 0 12px; }
+.readerTips button { padding: 6px 16px; }
+.readerTipsProgress { display: flex; gap: 6px; margin-bottom: 12px; }
+.readerTipsProgress span { width: 7px; height: 7px; border-radius: 999px; background: var(--control-border); }
+.readerTipsProgress .current { width: 22px; background: var(--accent); }
+.readerTipsActions { display: flex; justify-content: flex-end; gap: 8px; }
+.readerTipsActions .readerTipsSkip { margin-inline-end: auto; color: var(--muted); background: transparent; border-color: transparent; }
+.readerTipsActions .readerTipsPrimary { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--control-bg)); }
+.tafsirTextSizeSetting { gap: 10px; }
+.rangeSettingValue { display: flex; align-items: center; gap: 10px; }
+.rangeSettingValue input { width: min(150px, 42vw); }
+.rangeSettingValue output { min-width: 2ch; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) {
+  .studyOpen .readerViewport { right: 0; bottom: 48%; }
+  :is(.studyOpen, .studyClosing) .ayahStudyPanel { width: auto; left: 8px; right: 8px; top: 53%; bottom: 8px; max-height: none; transform: none; }
+  .readingToolsDock .sessionButton { font-size: 12px; }
+}
+
+.theme-black {
+  --bg: #000000;
+  --surface: #070707;
+  --page-bg: #000000;
+  --control-bg: #101010;
+  --control-active: #1c1c1c;
+  --control-border: #30343a;
+  --text: #ffffff;
+  --mushaf-text: #ffffff;
+  --muted: #a8abb1;
+  --accent: #73c7a4;
+  --surah-ornament: #c2d0c9;
+  --surah-title: #ffffff;
+  --surah-header-filter: grayscale(1) invert(1) contrast(1.3);
+  --surah-header-blend: screen;
+  --page-shadow: rgb(0 0 0 / 36%);
+  --page-edge: rgb(255 255 255 / 7%);
+  --gutter-shadow: rgb(0 0 0 / 58%);
+  --digital-khatt-line-filter: invert(1) brightness(1.08);
+}
+
+.theme-navy {
+  --bg: #07111f;
+  --surface: #0d1a2b;
+  --page-bg: #0a1422;
+  --control-bg: #122238;
+  --control-active: #1b3552;
+  --control-border: #2a4564;
+  --text: #f1f6fb;
+  --mushaf-text: #fbfdff;
+  --muted: #aab8c7;
+  --accent: #72c7bd;
+  --surah-ornament: #8faaa9;
+  --surah-title: #f3f8f8;
+  --surah-header-filter: grayscale(1) invert(1) contrast(1.22) sepia(0.15)
+    saturate(1.35) hue-rotate(118deg);
+  --surah-header-blend: screen;
+  --page-shadow: rgb(0 8 20 / 42%);
+  --page-edge: rgb(136 174 210 / 14%);
+  --gutter-shadow: rgb(0 7 18 / 54%);
+  --digital-khatt-line-filter: invert(1) brightness(1.08);
+}
+
+.theme-light {
+  color-scheme: light;
+  --bg: #f1eee8;
+  --surface: #fbfaf7;
+  --page-bg: #fffdf8;
+  --control-bg: #ffffff;
+  --control-active: #e8f2ed;
+  --control-border: #d8d2c8;
+  --text: #151412;
+  --mushaf-text: #16120d;
+  --muted: #5e5a54;
+  --accent: #2f8f6b;
+  --surah-ornament: #8b7650;
+  --surah-title: #211b14;
+  --surah-header-filter: grayscale(1) contrast(1.14) sepia(0.42)
+    saturate(0.82);
+  --surah-header-blend: multiply;
+  --page-shadow: rgb(40 31 18 / 18%);
+  --page-edge: rgb(205 196 181 / 70%);
+  --gutter-shadow: rgb(107 92 66 / 20%);
+  --digital-khatt-line-filter: none;
+}
+
+.theme-sepia {
+  color-scheme: light;
+  --bg: #e9dfcf;
+  --surface: #f8f0e2;
+  --page-bg: #fbf1dd;
+  --control-bg: #fff8ec;
+  --control-active: #eadbc5;
+  --control-border: #cdbb9e;
+  --text: #1d1710;
+  --mushaf-text: #181008;
+  --muted: #665846;
+  --accent: #8a6f3d;
+  --surah-ornament: #8c7044;
+  --surah-title: #2a2015;
+  --surah-header-filter: grayscale(1) contrast(1.1) sepia(0.68)
+    saturate(0.78);
+  --surah-header-blend: multiply;
+  --page-shadow: rgb(62 43 20 / 18%);
+  --page-edge: rgb(174 149 112 / 56%);
+  --gutter-shadow: rgb(116 87 47 / 18%);
+  --digital-khatt-line-filter: sepia(0.16) saturate(0.82);
+}
+
+@media (prefers-color-scheme: light) {
+  .theme-system {
+    color-scheme: light;
+    --bg: #f1eee8;
+    --surface: #fbfaf7;
+    --page-bg: #fffdf8;
+    --control-bg: #ffffff;
+    --control-active: #e8f2ed;
+    --control-border: #d8d2c8;
+    --text: #151412;
+    --mushaf-text: #16120d;
+    --muted: #5e5a54;
+    --accent: #2f8f6b;
+    --surah-ornament: #8b7650;
+    --surah-title: #211b14;
+    --surah-header-filter: grayscale(1) contrast(1.14) sepia(0.42)
+      saturate(0.82);
+    --surah-header-blend: multiply;
+    --page-shadow: rgb(40 31 18 / 18%);
+    --page-edge: rgb(205 196 181 / 70%);
+    --gutter-shadow: rgb(107 92 66 / 20%);
+    --digital-khatt-line-filter: none;
+  }
+}
+
+button,
+select,
+input {
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+button {
+  min-width: 2rem;
+  height: 2.15rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.floatingControls {
+  position: absolute;
+  z-index: 20;
+  top: 0.38rem;
+  right: 0.42rem;
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.2rem;
+  border: 1px solid color-mix(in srgb, var(--control-border) 48%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 56%, transparent);
+  box-shadow: 0 0.3rem 0.9rem rgb(0 0 0 / 11%);
+  opacity: 0.74;
+  transition:
+    opacity 160ms ease,
+    background 160ms ease;
+}
+
+.floatingControls > .readerControl {
+  min-width: 2.08rem;
+  height: 2.08rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 0.58rem;
+  border-color: transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--control-bg) 82%, transparent);
+  color: var(--text);
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 520;
+  white-space: nowrap;
+}
+
+.floatingControls > .readerControl:hover,
+.floatingControls > .readerControl[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--control-border) 72%, transparent);
+  background: color-mix(in srgb, var(--control-active) 86%, var(--control-bg));
+}
+
+.readerSearchControl {
+  min-width: 4.85rem !important;
+  border-radius: 999px !important;
+}
+
+.readerSettingsControl {
+  width: 2.08rem;
+  padding: 0 !important;
+}
+
+.searchControlIcon {
+  position: relative;
+  width: 0.76rem;
+  height: 0.76rem;
+  flex: 0 0 0.76rem;
+  border: 1.55px solid currentColor;
+  border-radius: 50%;
+}
+
+.searchControlIcon::after {
+  content: "";
+  position: absolute;
+  right: -0.3rem;
+  bottom: -0.2rem;
+  width: 0.4rem;
+  height: 1.7px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+
+.settingsControlIcon {
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.floatingControls:hover,
+.floatingControls:focus-within {
+  opacity: 1;
+}
+
+.readerViewport {
+  position: absolute;
+  inset: 0 0 var(--reader-status-reserve);
+  width: auto;
+  height: auto;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  overflow: hidden;
+  padding: 0 2.55rem;
+  background: var(--bg);
+}
+
+.appShell .sideNavButton {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 4.25rem;
+  min-width: 2.25rem;
+  padding: 0 0 0.12rem;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+  font-size: 1.55rem;
+  font-weight: 500;
+  line-height: 0.8;
+  opacity: 0.48;
+  transform: translateY(-50%);
+  transition:
+    opacity 160ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.sideNavButton:hover,
+.sideNavButton:focus-visible {
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  opacity: 0.82;
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.sideNavButton:disabled {
+  opacity: 0.12;
+}
+
+.sideNavNext {
+  left: 0.7rem;
+}
+
+.sideNavPrevious {
+  right: 0.7rem;
+}
+
+.readerScaleSurface {
+  position: relative;
+  width: var(--reader-scaled-width);
+  height: var(--reader-scaled-height);
+  flex: 0 0 auto;
+  overflow: visible;
+  transform: translate(var(--reader-x-offset), var(--reader-y-offset));
+}
+
+.singleView,
+.spreadView {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--reader-natural-width);
+  height: var(--reader-natural-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: none;
+  transform-origin: top left;
+  zoom: var(--reader-fit-scale);
+}
+
+.spreadView {
+  gap: 0;
+  direction: ltr;
+  filter: none;
+}
+
+.spreadView::before {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  top: 0.38rem;
+  bottom: 0.38rem;
+  left: 617px;
+  width: 1px;
+  background: color-mix(in srgb, var(--page-edge) 78%, var(--gutter-shadow));
+  box-shadow:
+    -1px 0 color-mix(in srgb, var(--page-bg) 68%, transparent),
+    1px 0 color-mix(in srgb, var(--gutter-shadow) 16%, transparent);
+  pointer-events: none;
+}
+
+.pageSlot {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 617px;
+  height: 919px;
+  overflow: visible;
+}
+
+.qulPage {
+  touch-action: pan-y pinch-zoom;
+  --page-pad-y: 16px;
+  --page-pad-bottom: 46px;
+  --page-pad-x: 24px;
+  --stable-font-size: 22px;
+  direction: rtl;
+  width: 617px;
+  height: 919px;
+  aspect-ratio: 617 / 919;
+  display: grid;
+  grid-template-rows: repeat(15, minmax(0, 1fr));
+  align-items: center;
+  position: relative;
+  padding-block: var(--page-pad-y) var(--page-pad-bottom);
+  padding-inline: var(--page-pad-x);
+  border-radius: 3px;
+  background: var(--page-bg);
+  box-shadow:
+    0 0.85rem 1.75rem var(--page-shadow),
+    0 0 0 1px var(--page-edge);
+  overflow: hidden;
+  color: var(--mushaf-text);
+}
+
+.qulPage::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  inset: 0.38rem;
+  border: 1px solid color-mix(in srgb, var(--page-edge) 62%, transparent);
+  border-radius: inherit;
+  opacity: 0.52;
+  pointer-events: none;
+}
+
+.leftMushafPage {
+  border-radius: 17px 0 0 17px;
+  box-shadow:
+    inset 0 1px color-mix(in srgb, var(--page-bg) 80%, var(--text)),
+    inset 0 -1px color-mix(in srgb, var(--page-edge) 68%, transparent),
+    -3px 0 0 color-mix(in srgb, var(--page-bg) 86%, var(--page-edge)),
+    -6px 0 0 color-mix(in srgb, var(--page-bg) 72%, var(--page-edge)),
+    -8px 0 0 color-mix(in srgb, var(--page-bg) 58%, var(--page-edge)),
+    0 3px 0 color-mix(in srgb, var(--page-bg) 82%, var(--page-edge)),
+    0 6px 0 color-mix(in srgb, var(--page-bg) 66%, var(--page-edge));
+}
+
+.rightMushafPage {
+  border-radius: 0 17px 17px 0;
+  box-shadow:
+    inset 0 1px color-mix(in srgb, var(--page-bg) 80%, var(--text)),
+    inset 0 -1px color-mix(in srgb, var(--page-edge) 68%, transparent),
+    3px 0 0 color-mix(in srgb, var(--page-bg) 86%, var(--page-edge)),
+    6px 0 0 color-mix(in srgb, var(--page-bg) 72%, var(--page-edge)),
+    8px 0 0 color-mix(in srgb, var(--page-bg) 58%, var(--page-edge)),
+    0 3px 0 color-mix(in srgb, var(--page-bg) 82%, var(--page-edge)),
+    0 6px 0 color-mix(in srgb, var(--page-bg) 66%, var(--page-edge));
+}
+
+.spreadView .leftMushafPage::after {
+  border-right: 0;
+  border-radius: 13px 0 0 13px;
+}
+
+.spreadView .rightMushafPage::after {
+  border-left: 0;
+  border-radius: 0 13px 13px 0;
+}
+
+.singleView .qulPage {
+  border-radius: 13px;
+  box-shadow:
+    -3px 0 0 color-mix(in srgb, var(--page-bg) 82%, var(--page-edge)),
+    3px 0 0 color-mix(in srgb, var(--page-bg) 82%, var(--page-edge)),
+    0 0.85rem 1.75rem var(--page-shadow),
+    0 0 0 1px var(--page-edge);
+}
+
+.qulLine {
+  min-width: 0;
+  width: 100%;
+  grid-row: var(--line-number);
+  white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: plaintext;
+  font-family:
+    "KFGQPC Hafs", "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
+    "Amiri Quran", "Traditional Arabic", serif;
+  font-size: var(--stable-font-size);
+  line-height: 0.98;
+  letter-spacing: 0;
+  word-spacing: normal;
+  color: var(--mushaf-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: auto;
+  font-smooth: auto;
+}
+
+.qpcPage {
+  --page-pad-y: 35px;
+  --page-pad-bottom: 52px;
+  --page-pad-x: 52px;
+  --stable-font-size: 28.35px;
+}
+
+.qpcPage.leftMushafPage {
+  padding-right: 56px;
+  padding-left: 48px;
+}
+
+.qpcPage.rightMushafPage {
+  padding-right: 48px;
+  padding-left: 56px;
+}
+
+.qpcLine {
+  direction: rtl;
+  font-kerning: normal;
+  font-variant-ligatures: normal;
+  line-height: 0.96;
+  text-rendering: optimizeLegibility;
+  unicode-bidi: isolate;
+  word-spacing: normal;
+}
+
+.qpcPage.digitalKhattPage {
+  --stable-font-size: 30.6px;
+  /* Preserve the shaped outlines and line breaks while giving pronunciation
+     marks more room between the 15 fixed rows. */
+  --page-pad-y: 24px;
+  --page-pad-bottom: 34px;
+}
+
+.digitalKhattLine {
+  font-family: "Digital Khatt V2", "KFGQPC Hafs", "Traditional Arabic", serif;
+  font-feature-settings:
+    "rlig" 1,
+    "calt" 1,
+    "kern" 1;
+  font-variant-ligatures: common-ligatures contextual;
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+.qpcPage.digitalKhattPage .line-stableJustified {
+  width: 100%;
+  direction: rtl;
+  text-align: justify;
+  text-align-last: justify;
+  text-justify: inter-word;
+}
+
+.digitalKhattLineContent {
+  display: inline;
+}
+
+.shapedQuranLine { position: relative; height: 32px; }
+.shapedLineInk { position: absolute; width: 100%; height: auto; left: 0; top: 50%; transform: translateY(-50%); background-color: currentColor; mask-size: 100% 100%; mask-repeat: no-repeat; pointer-events: none; z-index: 1; }
+.shapedAyahRun { position: absolute; top: 0; height: 100%; color: transparent; overflow: hidden; white-space: nowrap; }
+
+.qpcPage.digitalKhattPage .line-condensedToFit {
+  text-align: right;
+  text-align-last: auto;
+}
+
+.line-condensedToFit .digitalKhattLineContent {
+  display: inline-block;
+  width: max-content;
+  transform: scaleX(var(--line-fit-scale));
+  transform-origin: right center;
+}
+
+.line-highlighted {
+  border-radius: 0.2rem;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--accent) 18%, transparent) 10%,
+      color-mix(in srgb, var(--accent) 18%, transparent) 90%,
+      transparent
+    );
+  box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.qpcWordRun,
+.ayahHighlightRun {
+  border-radius: 0.24em;
+}
+
+.ayahRun {
+  border-radius: 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: context-menu;
+}
+
+.ayahWord {
+  border-radius: 0.12em;
+  transition:
+    background-color 90ms ease,
+    box-shadow 90ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ayahWord {
+    transition: none;
+  }
+}
+
+.ayahHighlightRun {
+  padding: 0.02em 0.12em 0.1em;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 7%, transparent),
+      color-mix(in srgb, var(--accent) 20%, transparent)
+    );
+  box-shadow:
+    0 0.09em 0 color-mix(in srgb, var(--accent) 20%, transparent),
+    0 0 0 0.06em color-mix(in srgb, var(--accent) 8%, transparent);
+  color: color-mix(in srgb, var(--mushaf-text) 92%, var(--accent));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.qpcPage .line-ayahText {
+  text-align: center;
+  text-align-last: center;
+}
+
+.qpcPage.digitalKhattPage .line-ayahText {
+  word-spacing: normal;
+}
+
+.qpcPage .line-centered,
+.qpcPage .line-surah_name,
+.qpcPage .line-basmallah {
+  text-align: center;
+  text-align-last: center;
+}
+
+.line-ayahText {
+  text-align: right;
+  text-align-last: auto;
+}
+
+.line-centered,
+.line-surah_name,
+.line-basmallah {
+  text-align: center;
+  text-align-last: center;
+}
+
+.textMode-natural .line-ayahText {
+  text-align: center;
+  text-align-last: auto;
+  word-spacing: normal;
+}
+
+.textMode-mushafFit .line-ayahText,
+.textMode-mushaf .line-ayahText {
+  text-align: center;
+  text-align-last: auto;
+}
+
+.textMode-justified .line-ayahText {
+  text-align: justify;
+  text-align-last: justify;
+  text-justify: inter-word;
+}
+
+.line-surah_name {
+  font-size: calc(var(--stable-font-size) * 0.86);
+  line-height: 0.98;
+  color: color-mix(in srgb, var(--mushaf-text) 88%, var(--accent));
+}
+
+.qpcPage .line-surah_name {
+  width: min(94%, 30.25rem);
+  min-height: 3.4rem;
+  display: grid;
+  place-items: center;
+  position: relative;
+  justify-self: center;
+  margin-inline: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--surah-title);
+  direction: rtl;
+  font-size: inherit;
+  line-height: 1;
+  transform: translateY(0.1rem);
+  overflow: visible;
+  isolation: isolate;
+  unicode-bidi: isolate;
+}
+
+.qpcPage .line-surah_name::before {
+  content: none;
+}
+
+.surahHeaderGlyph {
+  display: block;
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  color: inherit;
+  direction: ltr;
+  font-family: "QUL Surah Header Color", serif;
+  font-size: 8.65rem;
+  font-feature-settings:
+    "liga" 1,
+    "calt" 1;
+  font-variant-ligatures: discretionary-ligatures;
+  line-height: 1;
+  text-align: center;
+  text-align-last: center;
+  text-rendering: optimizeLegibility;
+  white-space: nowrap;
+  filter: var(--surah-header-filter);
+  mix-blend-mode: var(--surah-header-blend);
+  transform: translate(-50%, -50%);
+}
+
+.line-basmallah {
+  font-size: calc(var(--stable-font-size) * 0.82);
+  line-height: 0.98;
+  word-spacing: normal;
+  color: color-mix(in srgb, var(--mushaf-text) 84%, var(--accent));
+}
+
+.qpcPage .line-basmallah {
+  overflow: visible;
+}
+
+.qpcPage:not(.openingMushafPage) .line-surah_name + .line-basmallah {
+  transform: translateY(0.16rem);
+}
+
+.bismillahGlyph {
+  display: inline-block;
+  color: var(--mushaf-text);
+  direction: rtl;
+  font-family: "QUL Surah Name V4", serif;
+  font-size: 1.68rem;
+  font-feature-settings: "liga" 1, "calt" 1;
+  font-variant-ligatures: discretionary-ligatures;
+  line-height: 1;
+  text-rendering: optimizeLegibility;
+  transform: translateY(0.22rem);
+}
+
+.bismillahWord {
+  display: inline-block;
+}
+
+.sizing-auto .qulLine,
+.sizing-normal .qulLine {
+  font-size: var(--stable-font-size);
+}
+
+.sizing-smaller .qulLine {
+  font-size: calc(var(--stable-font-size) * 0.94);
+}
+
+.sizing-larger .qulLine {
+  font-size: calc(var(--stable-font-size) * 1.08);
+}
+
+.sizing-custom .qulLine {
+  font-size: calc(var(--stable-font-size) * var(--manual-text-scale));
+}
+
+.sizing-auto .line-surah_name,
+.sizing-normal .line-surah_name {
+  font-size: calc(var(--stable-font-size) * 0.86);
+}
+
+.sizing-smaller .line-surah_name {
+  font-size: calc(var(--stable-font-size) * 0.94 * 0.86);
+}
+
+.sizing-larger .line-surah_name {
+  font-size: calc(var(--stable-font-size) * 1.08 * 0.86);
+}
+
+.sizing-custom .line-surah_name {
+  font-size: calc(var(--stable-font-size) * var(--manual-text-scale) * 0.86);
+}
+
+.sizing-auto .line-basmallah,
+.sizing-normal .line-basmallah {
+  font-size: calc(var(--stable-font-size) * 0.82);
+}
+
+.sizing-smaller .line-basmallah {
+  font-size: calc(var(--stable-font-size) * 0.94 * 0.82);
+}
+
+.sizing-larger .line-basmallah {
+  font-size: calc(var(--stable-font-size) * 1.08 * 0.82);
+}
+
+.sizing-custom .line-basmallah {
+  font-size: calc(var(--stable-font-size) * var(--manual-text-scale) * 0.82);
+}
+
+.sizing-auto .qpcLine,
+.sizing-normal .qpcLine,
+.sizing-smaller .qpcLine,
+.sizing-larger .qpcLine,
+.sizing-custom .qpcLine {
+  font-size: var(--stable-font-size);
+}
+
+.sizing-auto .qpcPage .line-surah_name,
+.sizing-normal .qpcPage .line-surah_name,
+.sizing-smaller .qpcPage .line-surah_name,
+.sizing-larger .qpcPage .line-surah_name,
+.sizing-custom .qpcPage .line-surah_name {
+  font-size: inherit;
+}
+
+.sizing-auto .qpcPage .line-basmallah,
+.sizing-normal .qpcPage .line-basmallah,
+.sizing-smaller .qpcPage .line-basmallah,
+.sizing-larger .qpcPage .line-basmallah,
+.sizing-custom .qpcPage .line-basmallah {
+  font-size: calc(var(--stable-font-size) * 0.88);
+}
+
+.openingMushafPage .qpcLine {
+  transform: translateY(12.5rem);
+}
+
+.pageNumberMark {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 1.35rem;
+  z-index: 2;
+  color: color-mix(in srgb, var(--text) 58%, var(--muted));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.pageNumberMark[dir="rtl"] {
+  bottom: 0.84rem;
+  color: color-mix(in srgb, var(--mushaf-text) 66%, var(--muted));
+  font-family: "Segoe UI Variable Text", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.94rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  opacity: 0.88;
+  text-rendering: optimizeLegibility;
+}
+
+.pageSectionMark {
+  position: absolute;
+  bottom: 1.12rem;
+  z-index: 2;
+  min-height: 1.25rem;
+  max-width: 48%;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+  color: color-mix(in srgb, var(--text) 62%, var(--muted));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 0.69rem;
+  font-weight: 600;
+  line-height: 1.45;
+  opacity: 0.8;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.leftMushafPage .pageSectionMark {
+  right: 1.9rem;
+  text-align: right;
+}
+
+.rightMushafPage .pageSectionMark {
+  left: 1.9rem;
+  text-align: left;
+}
+
+.pageSectionMark[dir="rtl"] {
+  color: color-mix(in srgb, var(--mushaf-text) 68%, var(--muted));
+  font-family: "Segoe UI Variable Text", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  opacity: 0.9;
+  text-rendering: optimizeLegibility;
+}
+
+.pageTopMeta {
+  position: absolute;
+  z-index: 3;
+  top: 0.62rem;
+  inset-inline: 1.9rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  color: color-mix(in srgb, var(--text) 48%, var(--muted));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+  direction: ltr;
+}
+
+.pageTopSurah {
+  grid-column: 1;
+  direction: rtl;
+  font-family: "Digital Khatt V2", "Traditional Arabic", serif;
+  color: color-mix(in srgb, var(--mushaf-text) 78%, var(--muted));
+  font-size: 1.02rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.2;
+  opacity: 0.88;
+  text-align: left;
+  text-rendering: optimizeLegibility;
+  white-space: nowrap;
+}
+
+.pageTopSurah[lang="en"] {
+  min-width: 0;
+  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.pageTurnPreviews {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 617px;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout style paint;
+  zoom: var(--reader-fit-scale);
+}
+
+.bookTurning {
+  cursor: grabbing;
+}
+
+.bookFoldOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style paint;
+}
+
+.bookFoldWarmup {
+  opacity: 0.001;
+}
+
+.bookFoldSheet,
+.bookFoldShadow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  contain: strict;
+  will-change: transform, clip-path;
+  backface-visibility: hidden;
+}
+
+.bookFoldUnder { z-index: 1; }
+.bookFoldBack { z-index: 2; }
+.bookFoldShadow {
+  z-index: 3;
+  background: linear-gradient(to right, #000, transparent);
+}
+.bookFoldOverlay[data-direction="next"] .bookFoldShadow {
+  background: linear-gradient(to left, #000, transparent);
+}
+.bookFoldBack::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgb(0 0 0 / 8%), transparent 30%, rgb(255 255 255 / 5%));
+}
+.bookFoldSheet > .qulPage {
+  border-radius: 0;
+  box-shadow: none;
+  contain: strict;
+}
+
+.languageDialog {
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 1.5rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+}
+
+.languageDialog::backdrop {
+  background: rgb(0 0 0 / 52%);
+}
+
+.languageSetupHeader {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.languageDialog h2 {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.languageSetupChoices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.languageSetupChoices button {
+  min-height: 5.4rem;
+  display: grid;
+  place-content: center;
+  gap: 0.2rem;
+  padding: 0.8rem;
+  border-color: var(--control-border);
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+  color: var(--text);
+}
+
+.languageSetupChoices button:hover,
+.languageSetupChoices button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--control-border));
+  background: color-mix(in srgb, var(--control-active) 88%, transparent);
+  outline: none;
+}
+
+.languageSetupChoices strong {
+  font-size: 1.12rem;
+  font-weight: 620;
+}
+
+.languageSetupChoices span,
+.languageTafsirHint {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.languageTafsirHint {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin-top: 1.1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid color-mix(in srgb, var(--control-border) 75%, transparent);
+  line-height: 1.55;
+}
+
+.languageTafsirHint p {
+  margin: 0;
+}
+
+.languageChoices button {
+  min-height: 44px;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.pageTopCenter {
+  grid-column: 2;
+  min-width: 4.6rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.12rem;
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  font-size: 0.64rem;
+  opacity: 0.8;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pageTopCenter time {
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-hidden .pageTopCenter time {
+  display: none;
+}
+
+.pageSideLabel {
+  font-size: 0.43rem;
+  letter-spacing: 0.04em;
+  line-height: 0.8;
+  text-transform: uppercase;
+}
+
+.pageTopSections {
+  grid-column: 3;
+  justify-self: stretch;
+  overflow: hidden;
+  font-size: 0.65rem;
+  opacity: 0.8;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pageTopSections[dir="rtl"] {
+  color: color-mix(in srgb, var(--mushaf-text) 68%, var(--muted));
+  font-family: "Segoe UI Variable Text", "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  opacity: 0.9;
+  overflow: visible;
+  text-rendering: optimizeLegibility;
+  text-overflow: clip;
+}
+
+.metadataPhrase {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.22em;
+  white-space: nowrap;
+}
+
+[dir="rtl"] > .metadataPhrase .metadataNumber {
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: inherit;
+}
+
+.pageTopSections[dir="rtl"] .metadataNumber,
+.pageSectionMark[dir="rtl"] .metadataNumber {
+  font-size: 1em;
+}
+
+.loadState {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.panel {
+  position: absolute;
+  z-index: 8;
+  top: 3.3rem;
+  right: 0.55rem;
+  width: min(25rem, calc(100vw - 1.6rem));
+  max-height: calc(100svh - 4rem);
+  overflow: auto;
+  padding: 1.1rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow:
+    0 1.2rem 2.8rem rgb(0 0 0 / 32%),
+    inset 0 1px color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.jumpPanel {
+  width: min(31rem, calc(100vw - 1.6rem));
+}
+
+.primaryQuranSearch {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--control-border) 78%, transparent);
+}
+
+.primaryQuranSearch .settingGroup {
+  margin-bottom: 0.65rem;
+}
+
+.primaryQuranSearch .searchResults {
+  max-height: min(13rem, 28vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.jumpBrowseDivider {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.jumpBrowseDivider::before,
+.jumpBrowseDivider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: color-mix(in srgb, var(--control-border) 72%, transparent);
+}
+
+.tafsirPanel {
+  position: absolute;
+  z-index: 12;
+  top: 0.55rem;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  width: min(31rem, calc(100vw - 1.1rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1.2rem 3.2rem rgb(0 0 0 / 38%);
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.studyNavigation { display: grid; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--control-border); }
+.studyAyahControls { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.studyNavigation label { display: flex; align-items: center; gap: 6px; font: 14px "Segoe UI", Tahoma, sans-serif; }
+.studyNavigation select { width: 72px; }
+.studyNavigation input { width: min(180px, 48vw); }
+.studyTextSizeControl { justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--control-border); }
+.audioSection > input[type="search"] { box-sizing: border-box; width: 100%; margin-bottom: 12px; }
+.goalToast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 12px 20px; background: var(--control-bg, #303030); color: var(--text); border: 1px solid var(--control-border); border-radius: 8px; box-shadow: 0 8px 28px rgb(0 0 0 / 24%); }
+.sessionTimer { position: fixed; z-index: 12; left: 50%; bottom: 0.75rem; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 0.45rem; min-height: 1.9rem; padding: 0.2rem 0.72rem; border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--control-border)); border-radius: 999px; background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--text); box-shadow: 0 4px 18px rgb(0 0 0 / 18%); font: 600 0.78rem/1 "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.sessionTimerDot { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent); }
+.reminderToast { cursor: pointer; font: 600 0.9rem "Segoe UI", sans-serif; }
+.studyNavigation button { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; }
+.readingToolsDock { display: flex; align-items: center; gap: 2px; }
+.readingToolsDock button { min-width: 2.08rem; height: 2.08rem; display: flex; align-items: center; gap: 4px; justify-content: center; padding: 0 0.48rem; border-color: transparent; border-radius: 6px; background: color-mix(in srgb, var(--control-bg) 82%, transparent); color: var(--muted); }
+.readingToolsDock button:hover, .readingToolsDock button[aria-expanded=true] { color: var(--text); background: color-mix(in srgb, var(--control-active) 86%, var(--control-bg)); }
+.readingToolsPanel { z-index: 15; top: 3.25rem; }
+.readingToolsPanel label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.readingToolsPanel label select { max-width: 72%; min-width: 0; }
+.readingToolsPanel input[type=number] { width: 90px; }
+.readingToolsPanel input[type=time] { width: 8.5rem; }
+.readingToolsPanel button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.readingToolsPanel progress { width: 100%; accent-color: #60907b; height: 8px; }
+.goalProgress { font-size: 22px; margin: 20px 0 10px; }
+.goalPageActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.goalPageActions [aria-pressed=true] { background: color-mix(in srgb, #60907b 28%, var(--surface)); }
+.toolNote { color: var(--muted); font: 14px/1.8 "Segoe UI", Tahoma, sans-serif; }
+.hiddenAudio { display: none; }
+.recitationAudio { position: absolute; z-index: 16; bottom: 26px; right: 26px; width: min(28rem, calc(100vw - 52px)); height: 48px; color-scheme: dark; }
+.theme-light .recitationAudio, .theme-sepia .recitationAudio { color-scheme: light; }
+.audioSection { padding-bottom: 90px; }
+.audioControlSpace { display: none; }
+.audioModeControl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 18px; border: 1px solid var(--control-border); border-radius: 7px; }
+.audioModeControl button { border-color: transparent; background: transparent; }
+.audioModeControl button[aria-pressed=true] { background: var(--control-active); color: var(--text); }
+.reciterSummary { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 16px; color: var(--muted); font: 14px "Segoe UI", Tahoma, sans-serif; }
+.reciterSummary strong { color: var(--text); font-weight: 600; }
+@media (max-width: 700px) { .readingToolsDock button { min-width: 1.9rem; height: 1.9rem; padding: 0 0.35rem; } }
+
+.tafsirPanelHeader {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.05rem 0.9rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--control-border) 76%, transparent);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.tafsirPanelHeader span,
+.tafsirPanelHeader small {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.tafsirPanelHeader h2 {
+  margin: 0.12rem 0;
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+.tafsirPanelHeader button {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.35rem;
+}
+
+.tafsirQuranSection,
+.tafsirContentSection {
+  padding: 1rem 1.05rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--control-border) 68%, transparent);
+}
+
+.tafsirPanel h3 {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.77rem;
+  font-weight: 650;
+}
+
+.tafsirQuranSection {
+  background: color-mix(in srgb, var(--page-bg) 78%, transparent);
+}
+
+.tafsirQuranText {
+  margin: 0;
+  color: var(--mushaf-text);
+  font-family: "Digital Khatt V2", "Traditional Arabic", serif;
+  font-size: 1.72rem;
+  line-height: 1.9;
+  text-align: center;
+  text-rendering: geometricPrecision;
+}
+
+.tafsirSectionHeading {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.tafsirSectionHeading h3 {
+  margin-bottom: 0;
+}
+
+.tafsirSourcePicker button {
+  min-height: 2.15rem;
+  height: auto;
+  padding: 0.32rem 0.5rem;
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.82rem;
+}
+
+.tafsirArabicText {
+  color: var(--text);
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 1.02rem;
+  line-height: 2;
+  text-rendering: optimizeLegibility;
+}
+
+.tafsirArabicText p,
+.tafsirArabicText div,
+.tafsirTranslationText p,
+.tafsirTranslationText div {
+  margin: 0 0 0.75rem;
+}
+
+.tafsirArabicText > :last-child,
+.tafsirTranslationText > :last-child {
+  margin-bottom: 0;
+}
+
+.tafsirEmphasis {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  font-weight: 650;
+}
+
+.tafsirQuote {
+  color: color-mix(in srgb, var(--surah-ornament) 74%, var(--text));
+}
+
+.tafsirTranslationText {
+  color: var(--text);
+  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
+.tafsirTranslationText sup {
+  margin-inline: 0.1em;
+  color: var(--accent);
+  font-size: 0.7em;
+  font-weight: 700;
+}
+
+.tafsirStatus,
+.tafsirAttribution {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.tafsirFootnotes {
+  margin-top: 0.9rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.tafsirSharedPassage { margin-top: 0.75rem; }
+.tafsirSharedPassage summary { color: var(--text); padding-block: 0.55rem; }
+.tafsirSharedPassage .tafsirArabicText { margin-top: 0.75rem; }
+
+.tafsirFootnotes summary {
+  cursor: pointer;
+}
+
+.tafsirFootnotes ol {
+  margin-bottom: 0;
+  padding-inline-start: 1.4rem;
+}
+
+.tafsirAttribution {
+  padding: 0.8rem 1.05rem 1rem;
+  text-align: center;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 1.12rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.panelHeader button {
+  width: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.25rem;
+}
+
+.panel[dir="rtl"] {
+  text-align: right;
+}
+
+.panel[dir="rtl"] select,
+.panel[dir="rtl"] input {
+  text-align: right;
+}
+
+.panel[dir="rtl"] .settingToggle {
+  flex-direction: row;
+}
+
+.panel[dir="rtl"] .searchResults button {
+  justify-items: start;
+  text-align: right;
+}
+
+.panel[dir="rtl"] .surahOptions button {
+  text-align: right;
+}
+
+.settingGroup {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.settingGroup span,
+.settingGroup legend,
+.jumpPageForm span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.settingGroup select,
+.settingGroup input,
+.jumpPageForm input {
+  width: 100%;
+  height: 2.35rem;
+  padding-inline: 0.7rem;
+}
+
+.settingGroup:disabled {
+  opacity: 0.46;
+}
+
+.shortcutSettings {
+  padding: 0.65rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+}
+
+.shortcutRow {
+  min-height: 2rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shortcutRow select {
+  width: 7.4rem;
+  height: 2rem;
+}
+
+.shortcutRow kbd {
+  min-width: 2rem;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.panel[lang="ar"] {
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+.settingToggle {
+  min-height: 3.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+}
+
+.settingToggle > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.settingToggle strong {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 560;
+}
+
+.settingToggle small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.settingToggle input {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.segmented {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+}
+
+.segmented button {
+  flex: 1;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--control-active);
+  color: var(--text);
+}
+
+.jumpPageForm {
+  display: flex;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+.jumpPageForm {
+  margin-bottom: 1rem;
+}
+
+.jumpPageForm label {
+  flex: 1;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.jumpSectionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.jumpSectionGrid .settingGroup {
+  margin-bottom: 0;
+}
+
+.jumpSectionGrid[dir="rtl"] .settingGroup > span {
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-size: 0.96rem;
+}
+
+.surahSearchForm {
+  position: relative;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.surahSearchForm label {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.surahComboInput {
+  padding-inline-end: 2.3rem !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1rem) 50%,
+    calc(100% - 0.7rem) 50%;
+  background-repeat: no-repeat;
+  background-size: 0.32rem 0.32rem, 0.32rem 0.32rem;
+}
+
+.panel[dir="rtl"] .surahComboInput {
+  background-position:
+    1rem 50%,
+    0.7rem 50%;
+}
+
+.surahOptions {
+  max-height: 15.25rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.28rem;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--control-bg) 78%, var(--surface));
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.surahOptions button {
+  width: 100%;
+  min-height: 2.65rem;
+  height: auto;
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.42rem 0.55rem;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.surahOptions button:hover,
+.surahOptions button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--control-active) 76%, transparent);
+  outline: none;
+}
+
+.surahOptions button.surahOptionCurrent {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--control-active) 88%, transparent);
+  box-shadow: inset 0.16rem 0 color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+.panel[dir="rtl"] .surahOptions button.surahOptionCurrent {
+  box-shadow: inset -0.16rem 0 color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+.surahOptionNumber {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid color-mix(in srgb, var(--control-border) 74%, transparent);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.surahOptionNames {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.surahOptionNames strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.surahOptionNames small {
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  direction: rtl;
+  font-family: "Traditional Arabic", serif;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.surahOptionPage {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.surahNoResults {
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.searchResults {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.searchResults {
+  grid-template-columns: 1fr;
+}
+
+.searchLoading {
+  margin: -0.35rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.searchNoResults {
+  margin-top: 0.2rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--control-border) 72%, transparent);
+  border-radius: 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--control-bg) 55%, transparent);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.searchResults button {
+  height: auto;
+  min-height: 2.45rem;
+  display: grid;
+  justify-items: start;
+  gap: 0.12rem;
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+}
+
+.searchResults small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resetButton {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .readerViewport {
+    padding-inline: 2.6rem;
+  }
+
+  .qulLine {
+    line-height: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .floatingControls {
+    top: 0.32rem;
+    right: 0.32rem;
+    gap: 0.22rem;
+    padding: 0.2rem;
+  }
+
+  .floatingControls > .readerControl {
+    height: 2rem;
+    min-width: 2rem;
+    padding-inline: 0.52rem;
+  }
+
+  .readerSearchControl {
+    min-width: 4.65rem !important;
+  }
+
+  .readerSettingsControl {
+    width: 2rem;
+  }
+
+  .readerViewport {
+    padding: 3.15rem 2.1rem 1.2rem;
+  }
+
+  .spreadView {
+    gap: 18px;
+  }
+
+  .panel {
+    top: 2.85rem;
+    right: 0.45rem;
+  }
+
+  .tafsirPanel {
+    top: 0.35rem;
+    right: 0.35rem;
+    bottom: 0.35rem;
+    width: calc(100vw - 0.7rem);
+  }
+
+  .readingToolsPanel {
+    top: 3.15rem;
+  }
+
+  .jumpSectionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sideNavButton {
+    width: 1.8rem;
+    height: 3.4rem;
+    min-width: 1.8rem;
+    font-size: 1.35rem;
+  }
+
+  .sideNavNext {
+    left: 0.32rem;
+  }
+
+  .sideNavPrevious {
+    right: 0.32rem;
+  }
+}
+
+@media (max-width: 430px) {
+  .languageDialog {
+    padding: 1.1rem;
+  }
+
+  .languageSetupHeader,
+  .languageSetupChoices,
+  .languageTafsirHint {
+    grid-template-columns: 1fr;
+  }
+
+  .languageSetupHeader {
+    gap: 0.3rem;
+  }
+
+  .languageSetupChoices button {
+    min-height: 4.5rem;
+  }
+
+  .readerControlLabel {
+    font-size: 0.76rem;
+  }
+
+  .readerSearchControl {
+    min-width: 4.45rem !important;
+  }
+}
+
+/* Reading controls appear on demand without taking height from the Mushaf. */
+.appShell .floatingControls {
+  top: 0.45rem; left: 50%; right: auto; height: auto; max-width: calc(100% - 1rem); padding: 0.22rem;
+  justify-content: center; border: 1px solid color-mix(in srgb, var(--control-border) 70%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 0.45rem 1.4rem rgb(0 0 0 / 22%);
+  opacity: 0; transform: translate(-50%, calc(-100% - 0.8rem)); pointer-events: none;
+  transition: opacity 150ms ease, transform 180ms ease,
+    background-color 180ms ease, border-color 180ms ease;
+}
+.appShell.controlsVisible .floatingControls { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.readerSearchControl { order: 0; }
+.floatingControls .readingToolsDock { order: 1; padding-inline-end: 6px; margin-inline-end: 4px; border-inline-end: 1px solid var(--control-border); }
+.readingToolsDock .sessionButton { order: 2; }
+.floatingControls .fullscreenControl { order: 2; }
+.floatingControls .readerSettingsControl { order: 3; }
+.floatingControls > .fullscreenControl[aria-pressed="true"] { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--control-bg)); }
+.fullscreenControlIcon { min-width: 1rem; font-size: 1rem; line-height: 1; }
+.appShell .readerControlsReveal {
+  position: absolute; z-index: 13; top: 0; left: 50%; right: auto; width: auto; min-width: 9.5rem; height: 1.9rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  padding: 0 0.9rem; border: 1px solid color-mix(in srgb, var(--control-border) 72%, transparent);
+  border-top: 0; border-radius: 0 0 0.75rem 0.75rem;
+  background: color-mix(in srgb, var(--surface) 96%, transparent); color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  box-shadow: 0 0.3rem 1rem rgb(0 0 0 / 18%); opacity: 0.92; transform: translateX(-50%);
+  font: 600 0.76rem/1 "Segoe UI", sans-serif; white-space: nowrap;
+  transition: opacity 120ms ease, color 180ms ease, background-color 180ms ease;
+}
+.readerControlsReveal:hover,
+.readerControlsReveal:focus-visible { color: var(--text); background: var(--surface); opacity: 1; }
+.readerControlsRevealChevron { font-size: 0.95rem; line-height: 1; transform: translateY(-0.05rem); }
+.appShell .readerViewport { top: 0; }
+.floatingControls button { white-space: nowrap; font-family: "Segoe UI", Tahoma, sans-serif; font-size: 13px; }
+.readingToolsDock .sessionButton { gap: 7px; }
+.sessionIndicator { font-size: 11px; color: var(--accent); }
+.sessionPrimaryAction { width: 100%; background: var(--control-active); border-color: var(--accent); }
+@media (max-width: 540px) {
+  .appShell .floatingControls { padding-inline: 5px; gap: 2px; }
+  .readingToolsDock .sessionButton { padding-inline: 6px; }
+  .readerControlsReveal { min-width: 8.6rem; height: 1.8rem; padding-inline: 0.7rem; }
+}
+
+/* Search opens as one centered destination finder instead of an edge drawer. */
+.appShell .jumpPanel {
+  top: 3.45rem;
+  left: 50%;
+  right: auto;
+  width: min(38rem, calc(100vw - 2rem));
+  max-height: calc(100svh - 4.25rem);
+  padding: 1.2rem;
+  border-radius: 14px;
+  transform: translateX(-50%);
+  animation: destinationPanelIn 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.jumpPanel .searchInput { min-height: 2.9rem; padding-inline: 0.85rem; font-size: 0.94rem; }
+.jumpPanel .primaryQuranSearch { margin-bottom: 0.65rem; padding-bottom: 0.65rem; }
+.jumpPanel .jumpBrowseDivider { margin-bottom: 0.65rem; }
+.directPageResult { font-weight: 650; }
+.searchResults button:has(.directPageResult) {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--control-border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.searchResults button:has(.directPageResult) small { color: var(--text); font-size: 0.95rem; font-weight: 650; }
+
+/* Android-style emphasized entrance: quick, soft, and spatially tied to the right study rail. */
+.studyOpen .ayahStudyPanel {
+  animation: ayahStudyPanelIn 220ms cubic-bezier(0.2, 0, 0, 1);
+  transform-origin: right center;
+}
+@keyframes ayahStudyPanelIn {
+  from { opacity: 0; transform: translateY(-50%) translateX(1.35rem) scale(0.985); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); }
+}
+@keyframes destinationPanelIn {
+  from { opacity: 0; transform: translate(-50%, -0.65rem) scale(0.99); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.reciterCombobox { position: relative; margin-bottom: 16px; }
+.readingToolsPanel .reciterCombobox > label {
+  display: block;
+  margin: 0 0 0.45rem;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.reciterCombobox > input { width: 100%; min-height: 2.75rem; }
+.reciterOptions {
+  max-height: 14rem;
+  display: grid;
+  gap: 0.2rem;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+  padding: 0.3rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--control-bg) 72%, var(--surface));
+  scrollbar-width: thin;
+}
+.readingToolsPanel .reciterOptions button {
+  width: 100%;
+  min-height: 2.35rem;
+  justify-content: flex-start;
+  padding: 0.4rem 0.65rem;
+  border-color: transparent;
+  background: transparent;
+  text-align: start;
+}
+.readingToolsPanel .reciterOptions button:hover,
+.readingToolsPanel .reciterOptions button:focus-visible,
+.readingToolsPanel .reciterOptions button[aria-selected="true"] {
+  background: var(--control-active);
+  color: var(--text);
+}
+.reciterOptions p { margin: 0; padding: 0.8rem; color: var(--muted); text-align: center; }
+
+@media (max-width: 900px) {
+  .studyOpen .ayahStudyPanel { animation-name: ayahStudyPanelInCompact; transform-origin: center bottom; }
+  @keyframes ayahStudyPanelInCompact {
+    from { opacity: 0; transform: translateY(1rem) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}
+@media (max-width: 760px) {
+  .appShell .jumpPanel { top: 2.9rem; width: calc(100vw - 0.9rem); max-height: calc(100svh - 3.35rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studyOpen .ayahStudyPanel,
+  .appShell .jumpPanel { animation: none; }
+  .appShell .floatingControls,
+  .appShell .sideNavButton,
+  .appShell .readerControlsReveal { transition: none; }
+}
+
+
+
+.audioDownloadProgress { display: grid; gap: 6px; padding-block: 10px; font-size: 13px; }
+.audioDownloadProgress progress { width: 100%; accent-color: var(--accent); }
+.audioDownloadProgress span { direction: ltr; text-align: center; }
+.audioStorageInfo { margin-block: 12px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.audioStorageInfo summary { cursor: pointer; padding-block: 8px; color: var(--text); }
+.audioStorageInfo code { display: block; overflow-wrap: anywhere; font-size: 12px; }
+
+.tafsirDownloads { margin-block: 12px; font-family: "Segoe UI", Tahoma, sans-serif; font-size: 13px; line-height: 1.6; }
+.tafsirDownloads summary { cursor: pointer; padding-block: 10px; }
+.tafsirDownloads p, .listeningModeHint { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.tafsirDownloadRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-block: 8px; border-bottom: 1px solid var(--control-border); }
+.tafsirDownloadProgress { width: 100%; display: grid; gap: 6px; }
+.tafsirDownloadProgress progress { width: 100%; }
+.extraTafsirPicker { display: grid; gap: 6px; font-size: 13px; margin-block: 10px; }
+
+/* Keep library management outside the reading flow. Closing the disclosure
+   preserves an active download; closing ayah study still cancels it. */
+.ayahStudyPanel .tafsirPanelHeader { gap: 8px; z-index: 3; }
+.ayahStudyPanel .tafsirPanelHeader h2 { margin-inline-end: auto; }
+.tafsirPanelHeader .tafsirDownloads { position: static; margin: 0; }
+.tafsirPanelHeader .tafsirDownloads summary { padding: 6px 8px; color: var(--muted); border-radius: 6px; font-size: 12px; }
+.tafsirPanelHeader .tafsirDownloads summary:hover,
+.tafsirPanelHeader .tafsirDownloads summary:focus-visible { color: var(--text); background: var(--surface); }
+.tafsirLibraryPopover { position: absolute; inset-inline: 12px; top: 50px; max-height: min(65vh, calc(100% - 62px)); overflow-y: auto; padding: 16px; box-sizing: border-box; background: var(--surface); border: 1px solid var(--control-border); border-radius: 10px; box-shadow: 0 8px 24px #0005; }
+.tafsirLibraryPopover h3 { margin: 0 0 10px; font-size: 15px; }
+.tafsirPanelHeader .tafsirLibraryPopover button { width: auto; height: auto; min-height: 32px; padding: 5px 10px; border: 1px solid var(--control-border); font-size: 13px; }
+.tafsirLibraryTextSize { display: grid; gap: 8px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--control-border); }
+.tafsirLibraryTextSize span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tafsirLibraryTextSize input { width: 100%; margin: 0; accent-color: var(--accent); }
+.tafsirLibraryTextSize output { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Keep the exiting panel mounted while the reader returns to its full spread. */
+.studyClosing .ayahStudyPanel { pointer-events: none; animation: ayahStudyPanelOut 220ms cubic-bezier(0.2, 0, 0, 1) both; }
+@keyframes ayahStudyPanelOut {
+  from { opacity: 1; transform: translateY(-50%); }
+  to { opacity: 0; transform: translateY(-50%) translateX(1.35rem) scale(0.985); }
+}
+.studyListenMenu { font-size: 12px; }
+.studyListenMenu summary { cursor: pointer; padding: 6px 8px; border-radius: 6px; }
+.studyListenMenu summary:hover { background: var(--control-active); }
+.studyListenOptions { position: absolute; inset-inline: 12px; top: 50px; padding: 12px; background: var(--surface); border: 1px solid var(--control-border); border-radius: 10px; box-shadow: 0 8px 24px #0005; max-height: calc(100% - 62px); overflow-y: auto; }
+.studyListenOptions p { margin: 0 0 8px; color: var(--muted); }
+.tafsirPanelHeader .studyListenOptions button { display: block; width: 100%; height: auto; min-height: 38px; padding: 8px; text-align: start; font-size: 14px; }
+.listeningRangeSummary { padding: 10px; border: 1px solid var(--control-border); border-radius: 8px; font-size: 13px; line-height: 1.6; }
+.listeningRangeSummary button { display: block; margin-top: 6px; }
+@media (max-width: 900px) {
+  .studyClosing .ayahStudyPanel { animation-name: ayahStudyPanelOutCompact; }
+  @keyframes ayahStudyPanelOutCompact { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(1rem) scale(0.99); } }
+}
+@media (prefers-reduced-motion: reduce) { .studyClosing .ayahStudyPanel { animation: none; } }
+
+.ayahActionsBackdrop { position: fixed; inset: 0; z-index: 100; }
+.ayahActionsMenu { position: absolute; width: 264px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; border: 1px solid var(--control-border); border-radius: 12px; background: var(--surface); color: var(--text, #eee); box-shadow: 0 8px 32px #0005; }
+.ayahActionsMenu button { display:block; width:100%; min-height:42px; text-align:start; border:0; background:transparent; color:inherit; padding:8px 12px; border-radius:6px; }
+.ayahActionsMenu button:hover, .ayahActionsMenu button:focus-visible { background:#8883; }
+
+.recitationPlayer { background:var(--surface); border:1px solid var(--control-border); border-radius:14px; padding:16px; margin:16px 0; }
+.recitationPlayer h3,.recitationPosition { margin:0 0 8px; text-align:center; }
+.recitationButtons,.recitationPreferences,.recitationTimes { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.recitationButtons button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px; }
+.recitationButtons .primaryPlayback { flex:1; background:color-mix(in srgb,var(--accent) 18%,var(--surface)); }
+.recitationSeek { width:100%; margin:16px 0 8px; }
+.recitationTimes { color:var(--muted); font-size:13px; margin-bottom:14px; }
+.recitationPreferences label { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.recitationPreferences input { width:100px; }
+.recitationMini { position:fixed; z-index:35; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; padding:6px; max-width:calc(100vw - 24px); background:var(--surface); border:1px solid var(--control-border); border-radius:12px; box-shadow:0 4px 16px #0003; }
+.recitationMini button { display:flex; align-items:center; gap:6px; min-height:40px; }
+@media(max-width:500px) { .recitationPreferences {flex-wrap:wrap;} .recitationButtons {flex-wrap:wrap;} }
+
+.ayahActionsMenu { width:min(290px,calc(100vw - 24px)); box-sizing:border-box; padding:8px; }
+.ayahActionsMenu header { display:flex; align-items:center; justify-content:space-between; padding:2px 6px 8px; color:var(--muted); font-size:13px; }
+.ayahActionsMenu header button { width:32px; min-height:32px; padding:6px; display:grid; place-items:center; }
+.ayahActionsMenu .ayahPrimaryAction { display:flex; align-items:center; gap:12px; padding:12px; }
+.ayahPrimaryAction small { display:block; font-size:12px; color:var(--muted); margin-top:4px; }
+.ayahListeningGroup { margin-top: 6px; }
+.ayahListenHeading { display: flex; align-items: stretch; gap: 4px; }
+.ayahListenHeading .ayahPrimaryAction { flex: 1; min-width: 0; }
+.ayahActionsMenu .ayahListenExpand { flex: 0 0 40px; width: 40px; padding: 0; display: grid; place-items: center; }
+.ayahListenExpand svg { transition: transform 160ms ease-out; }
+.ayahListenExpand[aria-expanded="true"] svg { transform: rotate(180deg); }
+.ayahListenChoices { margin-block: 4px; margin-inline: 34px 8px; padding-inline-start: 10px; border-inline-start: 2px solid var(--control-border); }
+.ayahListenChoices[hidden] { display: none; }
+.ayahActionsMenu .ayahListenChoices button { text-align: start; font-size: 13px; padding: 10px; min-height: 40px; }
+@media (prefers-reduced-motion: reduce) { .ayahListenExpand svg { transition: none; } }
+
+@media(min-width:1800px) { .appShell:not(.studyOpen):not(.studyClosing) .recitationMini {left:10px;bottom:16px;transform:none;width:190px;flex-wrap:wrap;} .recitationMini button:nth-child(2) {order:3;width:100%;justify-content:center;} }
+
+/* Two-line actions need their natural height. Keep keyboard focus inside each
+   button so it cannot collide with the neighbouring hover state. */
+.ayahActionsMenu button { height: auto; outline-offset: -2px; }
+.ayahActionsMenu .ayahPrimaryAction + .ayahPrimaryAction { margin-top: 6px; }
+.ayahActionsMenu button:hover:not(:focus-visible) { outline: none; outline-offset: -2px; }
+
+.qulLine { transition: color 280ms cubic-bezier(0.4, 0, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .qulLine { transition: none; } }
+
+.reciterOptions .reciterOptionActive { outline: 2px solid var(--accent, #80b69b); outline-offset: -3px; }

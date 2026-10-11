@@ -1,0 +1,26 @@
+{
+  "webview2Bindings": {
+    "repository": "https://github.com/wravery/webview2-rs",
+    "file": "webview2-rs-MIT.txt",
+    "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73",
+    "packages": {
+      "webview2-com@0.39.1": "edc2caf886175ccaebe86078c9cfe1ae2a187328",
+      "webview2-com-sys@0.39.1": "edc2caf886175ccaebe86078c9cfe1ae2a187328",
+      "webview2-com-macros@0.8.1": "dffa41a8a46d3f5565eefbff2de57d38d399f158"
+    },
+    "urls": [
+      "https://raw.githubusercontent.com/wravery/webview2-rs/edc2caf886175ccaebe86078c9cfe1ae2a187328/LICENSE",
+      "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE"
+    ]
+  },
+  "webview2Sdk": {
+    "version": "1.0.3800.47",
+    "crate": "webview2-com-sys@0.39.1",
+    "file": "Microsoft-WebView2-SDK-1.0.3800.47.txt",
+    "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55",
+    "x64StaticLoaderSha256": "89c6b872783b8f6c3cedbff618adb42082d455c615453ae10cfc753f1e8f25d8",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3800.47/microsoft.web.webview2.1.0.3800.47.nupkg",
+    "licenseEntry": "LICENSE.txt",
+    "loaderEntry": "build/native/x64/WebView2LoaderStatic.lib"
+  }
+}

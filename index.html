@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; form-action 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://everyayah.com https://api.quran.com https://www.mp3quran.net https://*.mp3quran.net https://verses.quran.foundation; media-src 'self' https://everyayah.com blob: https://*.mp3quran.net https://verses.quran.foundation"
+    />
+    <link
+      rel="preload"
+      href="/fonts/digital-khatt/DigitalKhattV2.otf"
+      as="font"
+      type="font/otf"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/surah-header/QCF_SurahHeader_COLOR-Regular.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <title>Quran Mushaf Reader</title>
+    <link rel="stylesheet" href="/src/startup.css" />
+  </head>
+  <body>
+    <div id="root"><div class="startupMessage" role="status" aria-live="polite"><img src="/ui/app.ico" width="48" height="48" alt="" /><p id="startup-label">Loading…</p><div class="startupProgress" aria-hidden="true"><span></span><span></span><span></span></div></div></div>
+    <script src="/ui/startup.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

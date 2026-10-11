@@ -1,0 +1,23 @@
+Quran Mushaf Reader
+
+This setup program is the convenient installation option for Windows users.
+It installs the same application that is available in the portable ZIP and
+creates normal Start Menu and uninstall entries.
+
+Source code:
+https://github.com/Thrpro/Quran-reader
+
+The original application code is released under the MIT License. Bundled
+Quran text, fonts, layouts, translations, tafsir, audio, and other third-party
+resources retain their respective upstream terms. License and notice files are
+installed with the application.
+
+Reading progress, preferences, cached browser data, and explicitly downloaded
+audio are stored separately in your local user profile. An upgrade preserves
+that data. During uninstall, you can choose whether to remove it.
+
+The application includes .NET 10 LTS and Windows App Runtime, so these do not need
+separate installation. It uses the shared Microsoft WebView2 Runtime already
+present on Windows 11 and most Windows 10 computers. If WebView2 is missing,
+setup downloads Microsoft's signed bootstrapper and verifies it before running.
+Installing a missing WebView2 runtime requires internet and additional space.

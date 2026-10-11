@@ -1,0 +1,32 @@
+/* A bounded band behind each ayah segment avoids the font's tall inline
+   boxes painting into neighboring lines; no text metrics are changed. */
+.appShell { --ayah-color: 112 215 166; --ayah-hover: 0.20; --ayah-selected: 0.32; }
+.theme-light, .theme-sepia { --ayah-color: 208 145 12; --ayah-hover: 0.23; --ayah-selected: 0.36; }
+@media (prefers-color-scheme: light) {
+  .theme-system { --ayah-color: 208 145 12; --ayah-hover: 0.23; --ayah-selected: 0.36; }
+}
+.ayahRun.ayahRun-hovered, .ayahRun.ayahRun-selected,
+.ayahRun.ayahHighlightRun, .ayahRun.ayahRun-reciting {
+  padding: 0;
+  box-shadow: none;
+  background: linear-gradient(180deg, rgb(var(--ayah-color) / var(--ayah-strength)), rgb(var(--ayah-color) / calc(var(--ayah-strength) * 0.65)));
+  background-size: 100% 0.92em;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.ayahRun-hovered { --ayah-strength: var(--ayah-hover); }
+.ayahRun-selected, .ayahRun.ayahHighlightRun { --ayah-strength: var(--ayah-selected); }
+.ayahRun-reciting { --ayah-strength: 0.40; }
+
+.appShell.highlight-green { --ayah-color: 112 215 166; }
+.theme-light.highlight-green, .theme-sepia.highlight-green { --ayah-color: 38 150 95; }
+.appShell.highlight-gold { --ayah-color: 244 190 65; }
+.theme-light.highlight-gold, .theme-sepia.highlight-gold { --ayah-color: 208 145 12; }
+@media (prefers-color-scheme: light) {
+  .theme-system.highlight-green { --ayah-color: 38 150 95; }
+  .theme-system.highlight-gold { --ayah-color: 208 145 12; }
+}
+
+/* The selectable source layer must stay invisible above the shaped ink. */
+.shapedQuranLine .shapedAyahRun, .shapedQuranLine .shapedAyahRun .ayahWord { color: transparent; -webkit-text-fill-color: transparent; text-shadow: none; }
+.shapedQuranLine .ayahWord::selection, .shapedQuranLine .shapedAyahRun::selection { color: transparent; -webkit-text-fill-color: transparent; background: #3377cc55; }

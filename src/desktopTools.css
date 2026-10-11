@@ -1,0 +1,54 @@
+/* Native title-bar actions stay discoverable without covering the page header. */
+.appShell.rustHost:not(.fullscreenReader) .readerViewport { top: 36px; }
+.appShell.rustHost:not(.fullscreenReader) .floatingControls {
+  top: 42px; left: 300px; right: auto; width: 270px; max-width: calc(100% - 1rem);
+  padding: 8px; flex-direction: column; align-items: stretch;
+  transform: translateY(-8px); border-radius: 9px; background: var(--surface);
+}
+.appShell.rustHost:not(.fullscreenReader).controlsVisible .floatingControls { transform: none; }
+.appShell.rustHost:not(.fullscreenReader).toolPanelOpen .floatingControls { display: none; }
+.appShell.rustHost:not(.fullscreenReader)[data-interface-language="arabic"] .floatingControls { left: auto; right: 146px; }
+.appShell.rustHost:not(.fullscreenReader) .readerSearchControl { display: none; }
+.appShell.rustHost:not(.fullscreenReader) .floatingControls .readingToolsDock { display: contents; }
+.appShell.rustHost:not(.fullscreenReader) .floatingControls button { width: 100%; min-height: 42px; justify-content: flex-start; padding-inline: 12px; }
+.nativeToolLabel { display: none; }
+.appShell.rustHost .nativeToolLabel { display: inline; }
+.appShell.rustHost:not(.fullscreenReader) .jumpPanel {
+  top: 44px; max-height: calc(100% - 54px); background: var(--surface);
+  animation: desktopSearchIn 160ms ease-out;
+}
+.jumpPanel .primaryQuranSearch { border-bottom: 0; padding-bottom: 0; }
+.appShell.rustHost:not(.fullscreenReader) .readingToolsPanel { top: 44px; max-height: calc(100% - 54px); }
+.listeningRangeEditor { margin: 12px 0 18px; border-block: 1px solid var(--control-border); padding: 12px 0; }
+.listeningRangeEditor summary { color: var(--text); padding: 6px 0; }
+.listeningRangeFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.readingToolsPanel .listeningRangeFields label { display: grid; gap: 8px; }
+.readingToolsPanel .listeningRangeFields input { width: 100%; min-height: 40px; }
+.recitationMini button:last-child { gap: 6px; }
+.audioSection input[type="checkbox"], .audioSection input[type="range"] { accent-color: var(--accent); }
+.audioSection > label:not(.settingToggle) { display: grid; gap: 8px; align-items: start; }
+.audioSection > label:not(.settingToggle) select { max-width: none; width: 100%; min-height: 40px; }
+.audioSection .recitationPlayer { border-radius: 9px; }
+.audioSection .listeningModeHint { font-size: 13px; line-height: 1.5; }
+.audioRecordingOptions { margin-block: 12px; padding: 10px 12px; border: 1px solid var(--control-border); border-radius: 8px; }
+.audioRecordingOptions summary { cursor: pointer; font-size: 13px; line-height: 1.5; }
+.audioRecordingOptions summary small { display: block; color: var(--muted); margin-inline-start: 16px; }
+.audioRecordingOptions p { font-size: 13px; line-height: 1.6; color: var(--muted); }
+.audioRecordingOptions label { display: grid; gap: 8px; margin-block: 10px 2px; }
+.audioRecordingOptions select { width: 100%; min-height: 40px; }
+@keyframes desktopSearchIn { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (max-width: 800px) {
+  .rustTitleIdentity { flex-basis: 185px; }
+  .appShell .rustTitleBar .rustReaderActions button { padding-inline: 8px; gap: 5px; }
+  .appShell.rustHost:not(.fullscreenReader) .floatingControls { left: 220px; }
+}
+@media (max-width: 600px) {
+  .appShell.rustHost:not(.fullscreenReader)[data-interface-language="arabic"] .floatingControls { right: 116px; }
+}
+@media (prefers-reduced-motion: reduce) { .appShell.rustHost .jumpPanel { animation: none; } }
+@media (pointer: coarse) {
+  .rustTitleBar, .appShell .rustTitleBar button { height: 44px; }
+  .appShell.rustHost:not(.fullscreenReader) .readerViewport { top: 44px; }
+  .appShell.rustHost:not(.fullscreenReader) .jumpPanel,
+  .appShell.rustHost:not(.fullscreenReader) .readingToolsPanel { top: 52px; max-height: calc(100% - 62px); }
+}

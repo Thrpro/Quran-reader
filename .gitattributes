@@ -1,0 +1,2 @@
+# Preserve original bytes for the reader's source and resource checksums.
+* -text
