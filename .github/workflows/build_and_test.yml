@@ -1,0 +1,47 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust MSVC toolchain
+        run: rustup toolchain install stable --profile minimal --component rust-docs --no-self-update
+
+      - name: Select Rust toolchain
+        run: rustup default stable
+
+      - name: Install locked npm dependencies
+        run: npm ci
+
+      - name: Fetch locked Rust dependencies
+        working-directory: windows/QuranMushaf.Rust
+        run: cargo fetch --locked
+
+      - name: Validate Quran assets, run tests, and build Windows app
+        run: npm run publish:windows
