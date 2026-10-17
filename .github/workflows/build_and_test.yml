@@ -104,6 +104,7 @@ jobs:
           name: windows-check-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             outputs/*-qa/**/*.json
+            outputs/ink-qa/*.png
             outputs/dependency-check/*.json
           if-no-files-found: ignore
           retention-days: 7
