@@ -34,11 +34,11 @@
     "dompurify": "^3.4.16",
     "lucide-react": "^1.42.0",
     "page-flip": "2.0.7",
-    "react": "^19.0.0",
+    "react": "^19.3.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.0.0",
     "esbuild": "^0.25.9",
     "harfbuzzjs": "^0.4.5",
