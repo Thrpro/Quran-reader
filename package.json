@@ -1,7 +1,7 @@
 {
   "name": "quran-mushaf-reader-prototype",
   "private": true,
-  "version": "0.5.7",
+  "version": "0.5.8",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,17 +16,18 @@
     "test:memory": "node scripts/verify-memory-soak.mjs",
     "test:study": "node scripts/verify-tafsir-passages.mjs && node scripts/verify-study-ui.mjs",
     "dev": "node scripts/dev-server.mjs",
-    "build": "tsc && vite build --configLoader native && node scripts/prune-dist-assets.mjs",
+    "build": "node scripts/build-web.mjs",
     "preview": "vite preview --configLoader native --host 127.0.0.1",
     "process:qul": "node scripts/process-qul-data.mjs && node scripts/build-digital-khatt-pages.mjs",
-    "check:assets": "node scripts/validate-digital-khatt.mjs && node scripts/validate-study-data.mjs",
+    "check:assets": "node scripts/validate-digital-khatt.mjs && node scripts/validate-study-data.mjs && node scripts/build-ayah-page-map.mjs --check",
+    "package:portable": "node scripts/package-portable.mjs",
     "build:windows": "npm run publish:windows",
     "publish:windows": "npm run check:assets && npm test && npm run build && node scripts/build-rust-windows.mjs",
     "test:native": "node scripts/verify-rust-host.mjs --port 9235",
     "installer:windows": "node scripts/build-windows-installer.mjs",
     "release:windows": "npm run publish:windows && npm run check:release && npm run installer:windows",
     "check:dependencies": "node scripts/verify-dependencies.mjs",
-    "check:release": "npm run check:dependencies && npm run test:study && node scripts/verify-maintenance.mjs && node scripts/verify-runtime.mjs && node scripts/verify-rendering-controls.mjs && node scripts/verify-contextual-ink.mjs && node scripts/verify-contextual-folds.mjs && node scripts/verify-topbar-listening.mjs && node scripts/verify-continuous-audio.mjs && node scripts/verify-timed-audio.mjs"
+    "check:release": "npm run check:dependencies && npm run test:study && node scripts/verify-maintenance.mjs && node scripts/verify-runtime.mjs && node scripts/verify-rendering-controls.mjs && node scripts/verify-contextual-ink.mjs && node scripts/verify-contextual-folds.mjs && node scripts/verify-topbar-listening.mjs && node scripts/verify-continuous-audio.mjs && node scripts/verify-timed-audio.mjs && node scripts/verify-listening-refinements.mjs && node scripts/verify-error-recovery.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.20",

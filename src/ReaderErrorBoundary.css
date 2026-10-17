@@ -1,0 +1,19 @@
+.readerRecovery { position: fixed; inset: 0; z-index: 10000; overflow: auto; display: grid; place-items: center; padding: 64px 20px 24px; background: #202020; color: #f0efeb; font: 16px/1.65 "Segoe UI", Tahoma, sans-serif; color-scheme: dark; }
+.readerRecoveryLight { background: #f7f3e8; color: #252923; color-scheme: light; }
+.readerRecoveryTitle { position: absolute; inset: 0 0 auto; height: 42px; display: flex; justify-content: space-between; align-items: center; padding-inline-start: 16px; font-size: 14px; user-select: none; }
+.readerRecoveryTitle button { height: 42px; width: 52px; padding: 0; border: 0; border-radius: 0; }
+.readerRecoveryCard { width: min(100%, 560px); }
+.readerRecoveryIcon { color: #79b59b; }
+.readerRecoveryCard h1 { margin: 16px 0 8px; font-size: clamp(21px, 4vw, 27px); line-height: 1.4; }
+.readerRecoveryCard p { margin: 10px 0; }
+.readerRecoveryHint, .readerRecoveryDetails p { opacity: .78; font-size: 14px; }
+.readerRecoveryActions { display: flex; flex-wrap: wrap; gap: 10px; margin-block: 20px; }
+.readerRecovery button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 42px; padding: 8px 16px; border: 1px solid #7778; border-radius: 8px; font: inherit; color: inherit; background: transparent; cursor: pointer; }
+.readerRecovery button:hover { background: #8882; }
+.readerRecovery button:focus-visible, .readerRecovery summary:focus-visible { outline: 2px solid #79b59b; outline-offset: 4px; }
+.readerRecovery .readerRecoveryPrimary { color: #14221c; background: #79b59b; border-color: #79b59b; }
+.readerRecovery .readerRecoveryPrimary:hover { background: #8fc5ad; }
+.readerRecoveryDetails { margin-block-start: 28px; border-block-start: 1px solid #7775; padding-block-start: 18px; font-size: 14px; }
+.readerRecoveryDetails summary { cursor: pointer; }
+.readerRecoveryDetails pre { max-height: 240px; overflow: auto; padding: 12px; background: #8881; font: 12px/1.6 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.readerRecoveryNotice { min-height: 1.65em; font-size: 14px; }

@@ -3,9 +3,16 @@ name: Build and test
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full_release_checks:
+        description: Run the full release regression suite before creating a test ZIP
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -17,24 +24,24 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
 
       - name: Set up Rust MSVC toolchain
-        run: rustup toolchain install stable --profile minimal --component rust-docs --no-self-update
+        run: rustup toolchain install 1.99.0 --profile minimal --component rust-docs --no-self-update
 
       - name: Select Rust toolchain
-        run: rustup default stable
+        run: rustup default 1.99.0
 
       - name: Install locked npm dependencies
         run: npm ci
@@ -45,3 +52,58 @@ jobs:
 
       - name: Validate Quran assets, run tests, and build Windows app
         run: npm run publish:windows
+
+      - name: Check locked JavaScript and Rust dependencies for published advisories
+        run: npm run check:dependencies
+
+      - name: Verify reading, contextual rendering, and playback in Edge
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') && !(github.event_name == 'workflow_dispatch' && inputs.full_release_checks) }}
+        run: |
+          node scripts/verify-runtime.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-contextual-ink.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-contextual-folds.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-timed-audio.mjs --native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-listening-refinements.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run complete release regression checks
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.full_release_checks) }}
+        run: |
+          npm run check:release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-timed-audio.mjs --native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify localized recovery and safe diagnostic export
+        # Runs against an isolated fixture; there is no production crash trigger.
+        run: node scripts/verify-error-recovery.mjs
+
+      - name: Package and verify the tested portable app
+        run: node scripts/package-portable.mjs
+
+      - name: Retain verified portable ZIP and source/build identity
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-x64-tested-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            outputs/releases/**/*.zip
+            outputs/releases/**/*.sha256.txt
+            outputs/rust-windows/publish/RUST-HOST-BUILD.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Retain regression and dependency reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-check-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            outputs/*-qa/**/*.json
+            outputs/dependency-check/*.json
+          if-no-files-found: ignore
+          retention-days: 7

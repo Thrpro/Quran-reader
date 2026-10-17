@@ -16,6 +16,7 @@ import {
 } from "react";
 import { surahHeaderLigatures } from "./surahHeaderLigatures";
 import { AsyncPageCache } from "./asyncPageCache";
+import { orderedAyahKeys } from "./ayahKeyboard";
 import { createAyahSearcher } from "./ayahSearch";
 import { usePageDrag } from "./usePageDrag";
 import { hasSavedLanguage, LANGUAGE_SETUP_VERSION } from "./languagePreferences";
@@ -951,11 +952,11 @@ function PageTurnPreviews({ pageNumbers, cache, renderPage }: {
   const [, setRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    void Promise.allSettled(pageNumbers.map((page) => cache.load(page)))
+    void Promise.allSettled(pageNumbers.map((page) => cache.load(page, "neighbor")))
       .then((results) => {
         if (cancelled) return;
         for (const result of results) {
-          if (result.status === "rejected") console.warn("[Reader] Could not prepare page turn:", result.reason);
+          if (result.status === "rejected" && result.reason?.name !== "AbortError") console.warn("[Reader] Could not prepare page turn:", result.reason);
         }
         // A failed distant preview must not hide successfully prepared neighbors.
         setRevision((revision) => revision + 1);
@@ -1133,7 +1134,6 @@ export default function App() {
   const [isJumpOpen, setIsJumpOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [readingToolsOpen, setReadingToolsOpen] = useState(false);
-  const [playbackDockVisible, setPlaybackDockVisible] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(() => !isRustNativeHost());
   const controlsHideTimerRef = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1143,7 +1143,10 @@ export default function App() {
   const [recitationAyah, setRecitationAyah] = useState<string | null>(null);
   const recitationAyahRef = useRef<string | null>(null);
   const [ayahActions, setAyahActions] = useState<{ run: HTMLElement; x: number; y: number } | null>(null);
+  const ayahActionsRef = useRef(ayahActions);
+  ayahActionsRef.current = ayahActions;
   const [tafsirSelection, setTafsirSelection] = useState<TafsirSelection | null>(null);
+  const [studyAyahText, setStudyAyahText] = useState<{ key: string; text: string } | null>(null);
   const [retainedTafsir, setRetainedTafsir] = useState<TafsirSelection | null>(null);
   const [listeningRequest, setListeningRequest] = useState<ListeningRequest | null>(null);
   const [readingToolsDismiss, setReadingToolsDismiss] = useState(0);
@@ -1187,17 +1190,17 @@ export default function App() {
     return page;
   }));
   // Enhanced artwork has independent ownership: optional work never gates reading.
-  const [shapedCache] = useState(() => new AsyncPageCache<QpcPage>(12, async (pageNumber) => {
+  const [shapedCache] = useState(() => new AsyncPageCache<QpcPage>(12, async (pageNumber, priority) => {
     outlinesRef.current ??= fetchJson<Record<number, string>>("/experimental/digital-khatt/shaped/glyphs.json")
       .catch(error => { outlinesRef.current = null; throw error; });
     const [page, shaped, outlines] = await Promise.all([
-      pageCache.load(pageNumber),
+      pageCache.load(pageNumber, priority),
       fetchJson<ShapedPage>(`/experimental/digital-khatt/shaped/p${pageNumber}.json`),
       outlinesRef.current,
     ]);
     return { ...page, shaped, outlines };
   }));
-  const [, setArtworkRevision] = useState(0);
+  const [artworkRevision, setArtworkRevision] = useState(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const navigationRequestRef = useRef(0);
@@ -1212,6 +1215,15 @@ export default function App() {
   const languageReadyRef = useRef(settings.hasChosenLanguage);
   languageReadyRef.current = settings.hasChosenLanguage;
   const hoveredAyahRef = useRef<string | null>(null);
+  const keyboardAyahRef = useRef<string | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  useEffect(() => {
+    const preference = matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(preference.matches);
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = settings.metadataLanguage === "english" ? "en" : "ar";
@@ -1338,13 +1350,29 @@ export default function App() {
   useEffect(() => {
     if (!tafsirSelection) return;
     let cancelled = false;
-    void loadSearchIndex().then(entries => {
+    const selection = tafsirSelection;
+    const key = `${selection.surah}:${selection.ayah}`;
+    void import("./ayahPages").then(async ({ ayahPageSpan }) => {
+      const span = ayahPageSpan(selection.surah, selection.ayah);
+      if (!span || cancelled) return;
+      // Keep a selected fragment on its current page instead of jumping back
+      // when the same ayah continues on the following page.
+      setSettings(current => {
+        const visible = current.mode === "spread"
+          ? [getSpreadPages(current.page).rightPage, getSpreadPages(current.page).leftPage]
+          : [current.page];
+        return visible.some(page => page !== null && page >= span.first && page <= span.last)
+          ? current : { ...current, page: span.first };
+      });
+      const pages = await Promise.all(Array.from({ length: span.last - span.first + 1 }, (_, n) => pageCache.load(span.first + n)));
       if (cancelled) return;
-      const entry = entries.find(item => item.surah === tafsirSelection.surah && item.ayah === tafsirSelection.ayah);
-      if (entry) setSettings(current => current.page === entry.pageNumber ? current : { ...current, page: entry.pageNumber });
-    }).catch(() => {});
+      const text = pages.flatMap(page => page.lines.flatMap(line => line.words))
+        .filter(word => word.surah === selection.surah && word.ayah === selection.ayah && !/^\u06DD[\d٠-٩]+$/u.test(word.text.trim()))
+        .map(word => word.text).join(" ");
+      setStudyAyahText({ key, text });
+    }).catch(error => console.warn("[Reader] Could not locate selected ayah:", error));
     return () => { cancelled = true; };
-  }, [tafsirSelection]);
+  }, [tafsirSelection, pageCache]);
 
   useEffect(() => {
     if (!isJumpOpen && searchQuery.trim().length < 2) {
@@ -1525,6 +1553,9 @@ export default function App() {
   }, [isSpreadMode, settings.page, spread.leftPage, spread.rightPage]);
 
   const preloadQpcPageNumbers = useMemo(() => {
+    // Reduced motion never creates a fold, so optional canvas/DOM previews
+    // would consume memory without improving the requested experience.
+    if (reducedMotion) return [];
     const pages = new Set<number>();
     const addPage = (page: number | null) => {
       if (page !== null && page >= 1 && page <= PAGE_COUNT) {
@@ -1544,7 +1575,7 @@ export default function App() {
     }
 
     return Array.from(pages).filter((pageNumber) => !currentQpcPageNumbers.includes(pageNumber));
-  }, [currentQpcPageNumbers, isSpreadMode, settings.page, spread.leftPage, spread.rightPage]);
+  }, [currentQpcPageNumbers, isSpreadMode, settings.page, spread.leftPage, spread.rightPage, reducedMotion]);
 
   const readAheadQpcPageNumbers = useMemo(() => {
     const distance = settings.contextualText ? 4 : 8;
@@ -1573,11 +1604,15 @@ export default function App() {
     if (!settings.contextualText || !data) return;
     let cancelled = false;
     const pages = currentQpcPageNumbers;
-    void Promise.allSettled(preloadQpcPageNumbers.map(page => shapedCache.load(page))).then(() => {
+    shapedCache.retainPending([...currentQpcPageNumbers, ...preloadQpcPageNumbers]);
+    // Enqueue visible artwork before neighbors; a cached source page still
+    // renders immediately while its optional contextual geometry arrives.
+    const visibleArtwork = Promise.allSettled(pages.map(page => shapedCache.load(page, "visible")));
+    void Promise.allSettled(preloadQpcPageNumbers.map(page => shapedCache.load(page, "neighbor"))).then(() => {
       if (!cancelled) setArtworkRevision(n => n + 1);
     });
     // Retain the verified source renderer while artwork loads or if it fails.
-    void Promise.allSettled(pages.map(page => shapedCache.load(page))).then(results => {
+    void visibleArtwork.then(results => {
       if (cancelled) return;
       if (results.some(result => result.status === "fulfilled")) setArtworkRevision(n => n + 1);
       if (results.some(result => result.status === "rejected")) console.warn("[Digital Khatt] Optional artwork unavailable; retaining source text.");
@@ -1622,7 +1657,7 @@ export default function App() {
 
   useEffect(() => {
     // Preview caching has no visible state and waits for navigation metadata.
-    if (data) void Promise.allSettled(preloadQpcPageNumbers.map(page => pageCache.load(page)));
+    if (data) void Promise.allSettled(preloadQpcPageNumbers.map(page => pageCache.load(page, "neighbor")));
   }, [data, pageCache, preloadQpcPageNumbers]);
 
   useEffect(() => {
@@ -1632,6 +1667,7 @@ export default function App() {
 
     let isCancelled = false;
     setPageLoadError(false);
+    pageCache.retainPending([...currentQpcPageNumbers, ...preloadQpcPageNumbers]);
 
     // Page identities come from saved settings, so the visible spread can load
     // alongside metadata. Optional previews wait for metadata to avoid competing
@@ -1682,7 +1718,7 @@ export default function App() {
       if (cancelled) return;
       const batch = distantPages.slice(nextIndex, nextIndex + 2);
       nextIndex += batch.length;
-      void Promise.allSettled(batch.map(pageNumber => settings.contextualText ? shapedCache.load(pageNumber) : pageCache.load(pageNumber)))
+      void Promise.allSettled(batch.map(pageNumber => settings.contextualText ? shapedCache.load(pageNumber, "idle") : pageCache.load(pageNumber, "idle")))
         .then(schedule);
     };
     schedule();
@@ -1760,7 +1796,7 @@ export default function App() {
       window.visualViewport?.removeEventListener("scroll", scheduleUpdate);
       window.cancelAnimationFrame(frame);
     };
-  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen, playbackDockVisible]);
+  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen]);
 
   const previousReaderBounds = useRef<DOMRect | null>(null);
   const readerLayoutAnimation = useRef<Animation | null>(null);
@@ -1843,13 +1879,16 @@ export default function App() {
     recitationAyahRef.current = key;
     setRecitationAyah(key);
     if (!key) return;
-    void loadSearchIndex().then(entries => {
+    void import("./ayahPages").then(({ ayahFirstPage }) => {
       if (recitationAyahRef.current !== key) return;
-      const entry = entries.find(item => item.key === key);
-      if (entry && !currentQpcPageNumbers.includes(entry.pageNumber)) {
-        updateSettings({ page: entry.pageNumber });
+      // A verse continued on this spread must not pull the reader backwards.
+      if (ayahRuns(key).length) return;
+      const [surah, ayah] = key.split(":").map(Number);
+      const pageNumber = ayahFirstPage(surah, ayah);
+      if (pageNumber && !currentQpcPageNumbers.includes(pageNumber)) {
+        updateSettings({ page: pageNumber });
       }
-    });
+    }).catch(error => console.warn("[Reader] Could not follow recitation:", error));
   }
 
   function goPrevious(repeated = false, source: "discrete" | "keyboard" = "discrete") {
@@ -1918,6 +1957,54 @@ export default function App() {
     ) ?? [];
   }
 
+  function keyboardAyahRuns() {
+    const runs = Array.from(readerViewportRef.current?.querySelectorAll<HTMLElement>(".pageSlot > .qulPage .ayahRun[data-ayah-key]") ?? []);
+    const keys = orderedAyahKeys(runs.map(run => run.dataset.ayahKey ?? ""));
+    return keys.map(key => runs.find(run => run.dataset.ayahKey === key)!);
+  }
+
+  function setKeyboardAyah(run: HTMLElement) {
+    keyboardAyahRef.current = run.dataset.ayahKey ?? null;
+    for (const candidate of readerViewportRef.current?.querySelectorAll<HTMLElement>(".pageSlot > .qulPage .ayahRun") ?? []) {
+      candidate.tabIndex = candidate === run ? 0 : -1;
+    }
+  }
+
+  function openAyahActions(run: HTMLElement) {
+    const bounds = run.getBoundingClientRect();
+    setKeyboardAyah(run);
+    setAyahActions({ run, x: bounds.left, y: bounds.bottom });
+  }
+
+  function closeAyahActions() {
+    const run = ayahActionsRef.current?.run;
+    const key = run?.dataset.ayahKey;
+    setAyahActions(null);
+    requestAnimationFrame(() => {
+      // Optional contextual ink can replace the source line while a menu is
+      // open. Restore its current ayah element rather than a detached node.
+      const target = run?.isConnected ? run : key ? [...ayahRuns(key)][0] : undefined;
+      if (target) { setKeyboardAyah(target); target.focus({ preventScroll: true }); }
+    });
+  }
+
+  useLayoutEffect(() => {
+    const representatives = keyboardAyahRuns();
+    const selected = representatives.find(run => run.dataset.ayahKey === keyboardAyahRef.current) ?? representatives[0];
+    for (const run of readerViewportRef.current?.querySelectorAll<HTMLElement>(".pageSlot > .qulPage .ayahRun") ?? []) {
+      const key = run.dataset.ayahKey ?? "";
+      run.setAttribute("role", "button");
+      run.setAttribute("aria-haspopup", "dialog");
+      run.setAttribute("aria-label", settings.metadataLanguage === "arabic"
+        ? `الآية ${key}. ${run.textContent ?? ""}. خيارات التفسير والاستماع`
+        : `Ayah ${key}. ${run.textContent ?? ""}. Tafsir and listening options`);
+      run.title = settings.metadataLanguage === "arabic"
+        ? "Enter: خيارات الآية · ↑ ↓: الآية السابقة أو التالية"
+        : "Enter: ayah options · ↑ ↓: previous or next ayah";
+      run.tabIndex = run === selected ? 0 : -1;
+    }
+  }, [qpcData, artworkRevision, settings.page, settings.mode, settings.contextualText, settings.metadataLanguage, areCurrentQpcPagesLoaded]);
+
   function setHoveredAyah(key: string | null) {
     if (hoveredAyahRef.current === key) return;
     if (hoveredAyahRef.current) {
@@ -1950,10 +2037,11 @@ export default function App() {
   function startContextListening(scope: "ayah" | "page" | "surah" | "quran" | "whole-surah" | "whole-page", selection = tafsirSelection) {
     if (!selection) return;
     const selected = selection;
-    const entry = ayahSearchIndex?.find(item => item.surah === selected.surah && item.ayah === selected.ayah);
     const context = tafsirContextPage.current;
+    const visiblePage = [...qpcPageByNumber.values()].find(page => page.lines.some(line =>
+      line.words.some(word => word.surah === selected.surah && word.ayah === selected.ayah)));
     const pageNumber = context?.key === selected.surah + ":" + selected.ayah && context.page
-      ? context.page : entry?.pageNumber;
+      ? context.page : visiblePage?.pageNumber;
     const page = pageNumber ? qpcPageByNumber.get(pageNumber) ?? pageCache.peek(pageNumber) : undefined;
     const words = page?.lines.flatMap(line => line.words) ?? [];
     const first = words.at(0), last = words.at(-1);
@@ -2088,7 +2176,19 @@ export default function App() {
     function onKeyDown(event: KeyboardEvent) {
       if (!languageReadyRef.current) return;
       const target = event.target as HTMLElement | null;
+      // Escape may arrive during the frame before the floating menu receives
+      // focus. Dismiss it from the window capture path as well, keeping Escape
+      // scoped to this menu instead of also closing study/fullscreen controls.
+      if (event.key === "Escape" && ayahActionsRef.current) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeAyahActions();
+        return;
+      }
       if (target?.closest(".ayahActionsMenu")) return;
+      // Let an explicitly opened playback panel consume Escape before leaving
+      // fullscreen or dismissing unrelated reader controls.
+      if (event.key === "Escape" && document.querySelector(".sidePlayerPopover, .readingToolsPanel")) return;
       const isTyping =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -2135,6 +2235,27 @@ export default function App() {
 
       if (isTyping) {
         return;
+      }
+
+      const focusedAyah = target?.closest<HTMLElement>(".pageSlot > .qulPage .ayahRun");
+      if (focusedAyah && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.key === "Enter" || event.key === " " || event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) openAyahActions(focusedAyah);
+          return;
+        }
+        if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const runs = keyboardAyahRuns();
+          const current = runs.findIndex(run => run.dataset.ayahKey === focusedAyah.dataset.ayahKey);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? runs.length - 1
+            : Math.max(0, Math.min(runs.length - 1, current + (event.key === "ArrowUp" ? -1 : 1)));
+          const run = runs[next];
+          if (run) { setKeyboardAyah(run); run.focus({ preventScroll: true }); }
+          return;
+        }
       }
 
       if (key === "t" && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -2315,8 +2436,8 @@ export default function App() {
     <main
       ref={appShellRef}
       data-interface-language={settings.metadataLanguage}
-      className={`appShell ${playbackDockVisible ? "playbackDockVisible" : ""} ${isRustHost ? "rustHost" : ""} ${isJumpOpen || isSettingsOpen || readingToolsOpen ? "toolPanelOpen" : ""} highlight-${settings.highlightColor} ${isFullscreen ? "fullscreenReader" : ""} theme-${settings.theme} sizing-${settings.sizePreset} ${settings.showClock ? "clock-visible" : "clock-hidden"} ${tafsirSelection ? "studyOpen" : retainedTafsir ? "studyClosing" : ""} ${controlsVisible ? "controlsVisible" : "controlsHidden"}`}
-      style={{ ...readerStyle, "--playback-dock-reserve": `${playbackDockVisible}px` } as CSSProperties}
+      className={`appShell ${isRustHost ? "rustHost" : ""} ${isJumpOpen || isSettingsOpen || readingToolsOpen ? "toolPanelOpen" : ""} highlight-${settings.highlightColor} ${isFullscreen ? "fullscreenReader" : ""} theme-${settings.theme} sizing-${settings.sizePreset} ${settings.showClock ? "clock-visible" : "clock-hidden"} ${tafsirSelection ? "studyOpen" : retainedTafsir ? "studyClosing" : ""} ${controlsVisible ? "controlsVisible" : "controlsHidden"}`}
+      style={readerStyle}
       tabIndex={-1}
       onPointerMove={(event) => { if (!isRustHost && event.clientY <= 12) revealControls(); }}
       onFocusCapture={(event) => {
@@ -2911,7 +3032,7 @@ export default function App() {
 
       {ayahActions ? <AyahActions x={ayahActions.x} y={ayahActions.y} arabic={settings.metadataLanguage==='arabic'}
         title={(settings.metadataLanguage==='arabic' ? 'الآية ' : 'Ayah ') + (ayahActions.run.dataset.ayahKey ?? '')}
-        onClose={()=>setAyahActions(null)} onStudy={()=>{openTafsir(ayahActions.run);setAyahActions(null);}}
+        onClose={closeAyahActions} onStudy={()=>{openTafsir(ayahActions.run);setAyahActions(null);}}
         onListen={scope=>{
           const key=ayahActions.run.dataset.ayahKey ?? '';const [surah,ayah]=key.split(':').map(Number);
           tafsirContextPage.current={key,page:Number(ayahActions.run.closest<HTMLElement>('[data-page-number]')?.dataset.pageNumber)};
@@ -2927,7 +3048,7 @@ export default function App() {
           closing={!tafsirSelection}
           onListen={startContextListening}
           onExitFullscreen={isFullscreen ? toggleFullscreen : undefined}
-          ayahText={ayahSearchIndex?.find(entry => entry.surah === panelSelection.surah && entry.ayah === panelSelection.ayah)?.text ?? ""}
+          ayahText={studyAyahText?.key === `${panelSelection.surah}:${panelSelection.ayah}` ? studyAyahText.text : ""}
           verseCount={surahsById.get(panelSelection.surah)?.versesCount ?? 1}
           onNavigate={ayah => setTafsirSelection({ ...panelSelection, ayah })}
           onSurahStep={step => {
@@ -2947,7 +3068,6 @@ export default function App() {
       ) : null}
 
       {data ? <ReadingTools listeningRequest={listeningRequest} language={settings.metadataLanguage} surahs={data.surahs}
-        onPlaybackDockChange={setPlaybackDockVisible}
         integrateTitleBar={isRustHost && !isFullscreen} controlsEnabled={settings.hasChosenLanguage}
         dismissRequest={readingToolsDismiss}
         onBeforeOpen={() => { setIsJumpOpen(false); setIsSettingsOpen(false); setTafsirSelection(null); hideControls(); }}
@@ -2958,7 +3078,7 @@ export default function App() {
         enabled={settings.hasChosenLanguage && !isJumpOpen && !isSettingsOpen && !tafsirSelection} /> : null}
 
       <div className="pageTurnPreviews" ref={pageTurnPreviewsRef} inert aria-hidden="true">
-        {areCurrentQpcPagesLoaded && !panelSelection ? (
+        {areCurrentQpcPagesLoaded && !panelSelection && !reducedMotion ? (
           <PageTurnPreviews pageNumbers={preloadQpcPageNumbers} cache={pageCache} renderPage={renderReaderPage} />
         ) : null}
       </div>
@@ -2967,6 +3087,10 @@ export default function App() {
         className="readerViewport"
         aria-label={interfaceLabels.quranPages}
         ref={readerViewportRef}
+        onFocusCapture={event => {
+          const run = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".ayahRun") : null;
+          if (run) setKeyboardAyah(run);
+        }}
         onPointerOver={(event) => {
           const target = event.target instanceof HTMLElement
             ? event.target.closest<HTMLElement>(".ayahRun")

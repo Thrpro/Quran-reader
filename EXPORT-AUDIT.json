@@ -1331,7 +1331,7 @@
     "browserRuntime": "all runtime checks passed; no JavaScript errors"
   },
   "currentSnapshot": {
-    "version": "0.5.7",
+    "version": "0.5.8",
     "previousPublicRelease": "0.5.0",
     "previousInternalRelease": "0.5.4",
     "applicationCodeChanged": true,

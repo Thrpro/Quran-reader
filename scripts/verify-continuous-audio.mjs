@@ -19,13 +19,15 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ channel:'msedge', headless:true, args:['--autoplay-policy=no-user-gesture-required'] });
 try {
  const page=await browser.newPage({viewport:{width:1920,height:1051}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(()=>{localStorage.setItem('quran-single-recording-v1','false');localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:604,mode:'spread',theme:'dark',metadataLanguage:'english'}));});
+ // Maher intentionally uses the clip engine: the verified publisher timing
+ // catalog does not provide a complete table for this curated recording.
+ await page.addInitScript(()=>{localStorage.setItem('quran-listening-preferences-v1',JSON.stringify({mode:'ayah',ayahReciterId:1002,speed:1,volume:1,continuous:false}));localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:604,mode:'spread',theme:'dark',metadataLanguage:'english'}));});
  const mp3=await readFile(resolve('tests/fixtures/yasser-112001.mp3'));const requests=[];let failOnce=false;
  await page.route('**/*.mp3',async route=>{requests.push(route.request().url());if(failOnce){failOnce=false;return route.fulfill({status:503,body:'temporary outage'});}await route.fulfill({status:200,headers:{'content-type':'audio/mpeg','content-length':String(mp3.length),'access-control-allow-origin':'*'},body:mp3});});
  await page.goto('http://127.0.0.1:'+server.address().port);const run=page.locator('.readerViewport [data-ayah-key="112:1"]').first();await run.waitFor();
  await run.click({button:'right'});await page.screenshot({path:resolve(output,'right-click-0.4.21.png')});await page.getByRole('button',{name:'Listen from here',exact:false}).click();
  const audio=page.locator('audio');await page.waitForFunction(()=>document.querySelector('audio').currentTime>.2);
- assert.ok(requests[0].endsWith('/001001.mp3'),'basmala first');
+ assert.ok(requests[0].includes('/MaherAlMuaiqly128kbps/001001.mp3'),'the selected clip reciter provides basmala first');
  await page.getByRole('combobox',{name:'Playback speed',exact:true}).selectOption('1.5');
  await page.getByRole('slider',{name:'Volume',exact:true}).fill('0.35');
  const initialSrc=await audio.getAttribute('src');
@@ -36,9 +38,12 @@ try {
  await page.waitForFunction(()=>document.querySelector('audio').currentTime>6);
  assert.equal(await audio.evaluate(a=>a.playbackRate),1.5);assert.equal(await audio.getAttribute('src'),initialSrc,'one source spans ayahs');
  await page.screenshot({path:resolve(output,'player-0.4.21.png')});
- await page.getByRole('button',{name:'Pause',exact:true}).click();await page.keyboard.press('Escape');await page.locator('.recitationMini').waitFor();await page.locator('.recitationMini').getByRole('button',{name:'Resume',exact:true}).waitFor();await page.getByRole('button',{name:'Listening settings',exact:true}).click();
+ await page.getByRole('button',{name:'Pause',exact:true}).click();await page.keyboard.press('Escape');
+ await page.locator('.readingToolsPanel').waitFor({state:'detached'});await page.waitForTimeout(400);
+ if (!await page.locator('.recitationMini').isVisible()) await page.locator('.sidePlayerCompact').getByRole('button',{name:/Show (?:recitation|playback) controls/}).click();
+ await page.locator('.recitationMini').getByRole('button',{name:'Resume',exact:true}).waitFor();await page.locator('.recitationMini').getByRole('button',{name:'Listening settings',exact:true}).click();
  await page.getByRole('button',{name:'Download surah',exact:true}).click();await page.getByRole('button',{name:'Surah saved offline',exact:true}).waitFor();
- assert.equal(await page.evaluate(async()=> (await(await caches.open('quran-audio-v1')).keys()).length),5,'four ayahs plus basmala');
+ assert.equal(await page.evaluate(async()=> (await(await caches.open('quran-audio-v1')).keys()).filter(request=>new URL(request.url).pathname.endsWith('.mp3')).length),5,'four ayahs plus basmala; metadata is counted separately');
  await page.getByRole('combobox',{name:'Surah',exact:true}).selectOption('2');await page.getByRole('checkbox',{name:'Continue to next surah',exact:true}).check();
  failOnce=true;await page.getByRole('button',{name:'Play',exact:true}).click();await page.getByRole('status').filter({hasText:'Retrying'}).waitFor();await page.waitForFunction(()=>document.querySelector('audio').currentTime>.2);
  await page.waitForFunction(()=>{const a=document.querySelector('audio');return a.buffered.length && a.buffered.end(a.buffered.length-1)>80;});

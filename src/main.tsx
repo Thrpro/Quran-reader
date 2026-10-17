@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { ReaderErrorBoundary } from "./ReaderErrorBoundary";
 import "./styles.css";
 import "./fullscreen.css";
 import "./highlights.css";
@@ -8,6 +9,6 @@ import "./desktopTools.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <ReaderErrorBoundary><App /></ReaderErrorBoundary>
   </StrictMode>,
 );

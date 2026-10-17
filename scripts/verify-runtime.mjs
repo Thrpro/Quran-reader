@@ -86,7 +86,11 @@ try {
     await page.goto(`${base}/?page=${number}${extra}`);
     await checkPages(extra.includes("mode=single") ? [number] : [number % 2 ? number : number - 1, number % 2 ? number + 1 : number]);
     await page.evaluate(() => document.fonts.ready);
-    if (!baseline) await page.waitForFunction(() => document.querySelector(".pageTurnPreviews [data-preview-page]"));
+    if (!baseline) {
+      if (await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+        assert.equal(await page.locator(".pageTurnPreviews [data-preview-page]").count(), 0, "reduced motion does not allocate unused fold previews");
+      } else await page.waitForFunction(() => document.querySelector(".pageTurnPreviews [data-preview-page]"));
+    }
   }
 
   for (const number of [1, 43, 45, 235, 435, 443, 519, 603]) {

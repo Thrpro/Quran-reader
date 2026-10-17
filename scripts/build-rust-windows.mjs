@@ -6,6 +6,8 @@ import {
 } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { release } from 'node:os';
+import { sourceIdentity, assertSameBuildSource, verifyWebBuildSource, WEB_SOURCE_RECORD } from './source-identity.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const host = join(root, 'windows', 'QuranMushaf.Rust');
@@ -14,6 +16,8 @@ const output = join(root, 'outputs', 'rust-windows');
 const publish = join(output, 'publish');
 const staging = join(output, 'publish-staging');
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const sourceAtStart = sourceIdentity(root);
+const webBuild = verifyWebBuildSource(root, sourceAtStart);
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Build the Windows x64 Rust host on an x64 Windows machine.');
@@ -51,6 +55,14 @@ const env = {
   } : {}),
   PATH: `${dirname(cargo)}${sep === '\\' ? ';' : ':'}${process.env.PATH || ''}`,
   CARGO_TARGET_DIR: join(host, 'target'),
+};
+const tools = {
+  node: process.version,
+  npm: capture('cmd.exe', ['/d', '/s', '/c', 'npm --version']),
+  cargo: capture(cargo, ['--version']),
+  rustc: capture(join(dirname(cargo), 'rustc.exe'), ['--version', '--verbose']),
+  windows: release(),
+  architecture: process.arch,
 };
 
 function run(command, args, options = {}) {
@@ -110,12 +122,24 @@ function payloadFiles(directory, relative = '') {
   });
 }
 const files = payloadFiles(staging);
+const sourceAtFinish = sourceIdentity(root);
+assertSameBuildSource(sourceAtStart, sourceAtFinish);
+verifyWebBuildSource(root, sourceAtFinish);
 writeFileSync(join(staging, 'RUST-HOST-BUILD.json'), `${JSON.stringify({
   version: packageJson.version,
   nativeHost: 'rust',
   nativeHostFeatures,
   target: 'x86_64-pc-windows-msvc',
   builtAt: new Date().toISOString(),
+  source: {
+    ...sourceAtStart,
+    changedDuringBuild: JSON.stringify(sourceAtStart) !== JSON.stringify(sourceAtFinish),
+    recordedAt: 'build start',
+  },
+  webBuild: { builtAt: webBuild.builtAt, source: webBuild.source, webFiles: webBuild.webFiles,
+    recordSha256: hash(join(root, 'dist', WEB_SOURCE_RECORD)) },
+  tools,
+  reproducibility: 'Records source and tool identity plus payload hashes. It does not assert byte-identical compiler output across machines.',
   executableSha256: hash(join(staging, 'QuranMushaf.Windows.exe')),
   cargoLockSha256: hash(join(host, 'Cargo.lock')),
   rustDependencyNotices: notices.packages,
@@ -128,6 +152,12 @@ renameSync(staging, publish);
 console.log(`Published Rust Windows host at ${publish}`);
 const publishedBytes = files.reduce((sum, file) => sum + file.bytes, 0) + statSync(join(publish, 'RUST-HOST-BUILD.json')).size;
 console.log(`Payload: ${(publishedBytes / 1_000_000).toFixed(2)} MB, including ${(statSync(binary).size / 1_000_000).toFixed(2)} MB native executable.`);
+
+function capture(command, args) {
+  const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) throw new Error(`Could not record build tool version: ${command}.`);
+  return result.stdout.trim();
+}
 
 function rustNotices(metadata) {
   const sourceFolder = join(root, 'windows', 'installer', 'licenses');

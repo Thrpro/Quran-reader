@@ -1,5 +1,5 @@
 import { isErrorContentType, completeMp3 } from './audioFormat.ts';
-import type { AudioSegment } from './recitationPlan';
+import type { AudioPoint, AudioSegment } from './recitationPlan';
 
 type TimedSegment = { segment: AudioSegment; start: number; end: number; bytes: number };
 export type StreamStatus = 'ready' | 'buffering' | 'retrying' | 'error' | 'finished';
@@ -27,8 +27,10 @@ export class RecitationStream {
   private status: StreamStatus = 'ready';
   private cachedClips = new Set<string>();
   private pending?: Uint8Array<ArrayBuffer>;
+  private end?: AudioPoint;
+  private completed = false;
   constructor(media: HTMLAudioElement, plan: AudioSegment[], onSegment: (s: AudioSegment) => void, onStatus: (s: StreamStatus) => void) {
-    this.media = media; this.plan = plan; this.onSegment = onSegment; this.onStatus = onStatus;
+    this.media = media; this.plan = [...plan]; this.end = plan.at(-1); this.onSegment = onSegment; this.onStatus = onStatus;
     this.objectUrl = URL.createObjectURL(this.source);
     this.source.addEventListener('sourceopen', () => {
       if (this.stopped || this.buffer) return;
@@ -43,19 +45,39 @@ export class RecitationStream {
   }
   static supported() { return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg'); }
   get bufferedSeconds() { return Math.max(0, (this.timed.at(-1)?.end ?? 0) - this.media.currentTime); }
-  get duration() { return this.cursor === this.plan.length ? this.timed.at(-1)?.end ?? 0 : 0; }
+  get duration() { return this.cursor >= this.planLength ? this.boundary?.end ?? 0 : 0; }
+  private withinEnd(point: AudioPoint) { return !this.end || point.surah < this.end.surah || point.surah === this.end.surah && point.ayah <= this.end.ayah; }
+  private get boundary() { for (let index = this.timed.length - 1; index >= 0; index--) if (this.withinEnd(this.timed[index].segment)) return this.timed[index]; }
+  private get planLength() { const index = this.plan.findIndex(point => !this.withinEnd(point)); return index < 0 ? this.plan.length : index; }
+  /** Change the future boundary without reloading the current audio timeline. */
+  setEnd(end: AudioPoint) {
+    if (this.stopped || !Number.isInteger(end.surah) || end.surah < 1 || end.surah > 114 || !Number.isInteger(end.ayah) || end.ayah < 1) return;
+    this.end = { ...end }; if (this.wanted && !this.completed) void this.pump();
+  }
+  /** Append future chapters only. Already buffered clips and position are preserved. */
+  extendPlan(segments: AudioSegment[]) {
+    if (this.stopped || this.completed) return;
+    const last = this.plan.at(-1);
+    this.plan.push(...segments.filter(point => !last || point.surah > last.surah || point.surah === last.surah && point.ayah > last.ayah));
+  }
   private setStatus(status: StreamStatus) { if (!this.stopped && this.status !== status) { this.status = status; this.onStatus(status); } }
   play() {
+    if (this.stopped || this.completed) return;
     this.wanted = true; this.retryAt = 0;
     void this.pump();
     void this.media.play().catch(error => { if (!this.stopped && this.wanted && error.name !== 'AbortError') this.setStatus('error'); });
   }
   pause() { this.wanted = false; this.media.pause(); }
-  private ended = () => { if (this.cursor === this.plan.length) { this.wanted = false; this.setStatus('finished'); } };
+  private finish() { if (this.completed) return; this.completed = true; this.wanted = false; this.media.pause(); this.setStatus('finished'); }
+  private ended = () => { if (this.cursor >= this.planLength) this.finish(); };
   private failed = () => { this.wanted = false; void this.invalidateBufferedCache(); this.pending = undefined; this.setStatus('error'); };
   private tick = () => {
-    if (this.stopped) return;
+    if (this.stopped || this.completed) return;
     const position = this.media.currentTime;
+    const boundary = this.boundary;
+    if (this.end && boundary && boundary.segment.surah === this.end.surah && boundary.segment.ayah === this.end.ayah && position >= boundary.end) {
+      this.finish(); return;
+    }
     // Never choose a future preloaded verse when a timestamp falls in a gap.
     // Keep the last verse that has actually started until the next one starts.
     let active: TimedSegment | undefined;
@@ -63,7 +85,7 @@ export class RecitationStream {
       if (position >= this.timed[i].start) { active = this.timed[i]; break; }
     }
     if (active && active.segment !== this.notified) { this.notified = active.segment; this.onSegment(active.segment); }
-    if (this.wanted && this.bufferedSeconds < 0.15 && this.cursor < this.plan.length && this.status !== 'retrying') this.setStatus('buffering');
+    if (this.wanted && this.bufferedSeconds < 0.15 && this.cursor < this.planLength && this.status !== 'retrying') this.setStatus('buffering');
     if (this.wanted && this.bufferedSeconds < 25 * this.media.playbackRate) void this.pump();
   };
   private operation(action: () => void) {
@@ -127,11 +149,11 @@ export class RecitationStream {
 
   }
   private async pump() {
-    if (this.busy || this.stopped || !this.wanted || !this.buffer || this.source.readyState !== 'open' || Date.now() < this.retryAt) return;
+    if (this.busy || this.stopped || this.completed || !this.wanted || !this.buffer || !['open', 'ended'].includes(this.source.readyState) || Date.now() < this.retryAt) return;
     this.busy = true;
     try {
       await this.evictPlayed();
-      while (!this.stopped && this.wanted && this.cursor < this.plan.length && this.bufferedSeconds < 60 * this.media.playbackRate) {
+      while (!this.stopped && !this.completed && this.wanted && this.cursor < this.planLength && this.bufferedSeconds < 60 * this.media.playbackRate) {
         await this.evictPlayed();
         const segment = this.plan[this.cursor];
         this.pending ??= await this.fetchClip(segment.url);
@@ -145,7 +167,7 @@ export class RecitationStream {
         this.timed.push({segment,start,end,bytes:bytes.length}); this.pending = undefined; this.cursor++;
         this.failures = 0; this.setStatus('ready'); this.tick();
       }
-      if (this.cursor === this.plan.length && !this.stopped && this.source.readyState === 'open') this.source.endOfStream();
+      if (this.cursor >= this.planLength && !this.stopped && this.source.readyState === 'open') this.source.endOfStream();
     } catch (error) {
       if (this.media.error && this.plan[this.cursor]) {
         await this.invalidateBufferedCache(); await this.invalidateClip(this.plan[this.cursor].url); this.pending = undefined;

@@ -2262,18 +2262,33 @@ button:disabled {
 .recitationTimes { color:var(--muted); font-size:13px; margin-bottom:14px; }
 .recitationPreferences label { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .recitationPreferences input { width:100px; }
-.appShell.playbackDockVisible .readerViewport { padding-bottom: var(--playback-dock-reserve); }
-.recitationMini { position:fixed; z-index:35; bottom:8px; left:50%; transform:translateX(-50%); display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:4px 12px; padding:8px 14px; width:min(640px,calc(100vw - 24px)); box-sizing:border-box; background:var(--surface); border:1px solid var(--control-border); border-radius:12px; box-shadow:0 2px 10px #0002; }
-.recitationMini button { display:flex; align-items:center; justify-content:center; gap:4px; min-height:40px; min-width:40px; padding:6px; }
-.miniRecording { display:grid; gap:2px; min-width:0; font-size:14px; }
-.miniRecording strong { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.sideRecitationPlayer { position:fixed; z-index:35; bottom:18px; width:180px; box-sizing:border-box; display:grid; gap:14px; padding:12px; background:var(--surface); border:1px solid var(--control-border); border-radius:14px; box-shadow:0 4px 18px #0002; }
+.sideRecitationPlayer[data-side="left"],.sidePlayerCompactFloating[data-side="left"] { left:10px; right:auto; }
+.sideRecitationPlayer[data-side="right"],.sidePlayerCompactFloating[data-side="right"] { right:10px; left:auto; }
+.sideRecitationPlayer button,.sidePlayerCompact button { display:flex; align-items:center; justify-content:center; gap:4px; min-height:36px; min-width:34px; padding:6px; }
+.miniRecording { display:flex; align-items:center; justify-content:space-between; gap:4px; min-width:0; font-size:14px; }
+.miniRecording > div { display:grid; gap:4px; min-width:0; }
+.miniRecording strong,.miniRecording small { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .miniRecording small { color:var(--muted); font-size:12px; }
-.miniTransport,.miniActions { display:flex; align-items:center; gap:4px; }
-.miniActions { justify-content:flex-end; }
-.miniTransport .primaryPlayback { border-radius:50%; background:color-mix(in srgb,var(--accent) 20%,var(--surface)); }
-.miniTimeline { grid-column:1/-1; display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
-.miniTimeline input { flex:1; min-width:0; margin:0; accent-color:var(--accent); }
-@media(max-width:440px) { .recitationMini { gap:4px; padding-inline:8px; } .miniRecording { font-size:12px; } .miniTransport { gap:0; } .miniActions { gap:0; } }
+.miniRecording button { border:0; background:transparent; flex-shrink:0; }
+.miniTransport,.miniActions { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+.miniTransport button { font-size:12px; }
+.miniTransport .primaryPlayback,.sidePlayerCompact .primaryPlayback { border-radius:50%; background:color-mix(in srgb,var(--accent) 20%,var(--surface)); }
+.miniTimeline { display:grid; gap:4px; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.miniTimeline > div { display:flex; justify-content:space-between; gap:6px; }
+.miniTimeline input { width:100%; min-width:0; margin:0; accent-color:var(--accent); }
+.miniActions button { min-width:0; font-size:11px; gap:5px; }
+.sidePlayerCompact { display:flex; align-items:center; gap:4px; }
+.sidePlayerCompact button { min-height:30px; min-width:30px; padding:5px; }
+.sidePlayerCompactFloating { position:fixed; z-index:36; top:8px; padding:3px; border:1px solid var(--control-border); border-radius:10px; background:var(--surface); }
+.sidePlayerPopover { top:52px; bottom:auto; width:220px; max-width:calc(100vw - 20px); max-height:calc(100dvh - 64px); overflow:auto; box-shadow:0 8px 30px #0004; }
+.moreReciters { margin:14px 0; padding:10px 12px; border:1px solid var(--control-border); border-radius:10px; }
+.moreReciters summary { cursor:pointer; font-weight:600; padding-block:4px; }
+.moreReciters p { color:var(--muted); line-height:1.6; font-size:13px; }
+.moreReciters .activeAdditionalReciter { color:var(--text); }
+.resumeRecitation { margin-bottom:14px; padding:12px; border:1px solid var(--accent); border-radius:10px; }
+.resumeRecitation p { margin:0 0 8px; font-size:13px; line-height:1.6; }
+.ayahRun:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:3px; }
 @media(max-width:500px) { .recitationPreferences {flex-wrap:wrap;} .recitationButtons {flex-wrap:wrap;} }
 
 .ayahActionsMenu { width:min(290px,calc(100vw - 24px)); box-sizing:border-box; padding:8px; }
