@@ -26,5 +26,6 @@ These notes cover changes since **public v0.5.0 (internal v0.5.4)**, including i
 - Add localized retry/reload recovery for rendering failures and optional diagnostic export containing only non-sensitive app/environment information.
 - Extend automated checks for offline metadata, interrupted playback, continuation, preferences/resume, keyboard actions, contextual ink, fold copies and responsive player layouts.
 - Pin CI actions and the Rust toolchain, scan locked dependencies, and retain tested portable builds. Build manifests record source identity, tool versions and payload hashes. Packaging verifies its contents and refuses to overwrite an existing ZIP.
+- Follow-up CI fix (2026-10-18): recognize Windows temporary-folder aliases when checking Git source identity. Keep stale-source and modified-output rejection, and verify that a nested source export cannot inherit its enclosing repository's identity.
 
 Provider checks on 2026-10-17 found 115 timing reads. The curated mapping uses exact recording IDs/folders and sampled complete chapter tables; three matching styles with malformed Tawbah numbering remain on clips. Each chapter is validated again when loaded. This does not establish provider uptime or certify every live recording. See AUDIO-PROVIDERS.md and BUILD-VERIFICATION.md.

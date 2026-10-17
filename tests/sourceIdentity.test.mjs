@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import test from 'node:test';
@@ -86,4 +86,43 @@ test('Git anchor covers tracked edits and new nonignored files while retaining c
   assert.equal(sourceIdentity(root).dirty, true);
   assert.throws(() => verifyWebBuildSource(root), /web build belongs to different or changed source/);
   assert.ok(existsSync(join(root, 'dist', WEB_SOURCE_RECORD)));
+}));
+
+test('Git anchor recognizes a checkout reached through a directory alias', { skip: !gitAvailable }, () => fixture(root => {
+  function git(args) {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  git(['init', '--quiet']); git(['add', '.']);
+  git(['-c', 'user.name=Build fixture', '-c', 'user.email=build-fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Fixture source']);
+  const aliasDirectory = mkdtempSync(join(tmpdir(), 'quran-source-alias-'));
+  const alias = join(aliasDirectory, 'checkout');
+  let linked = false;
+  try {
+    symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir'); linked = true;
+    const direct = sourceIdentity(root), aliased = sourceIdentity(alias);
+    assert.equal(aliased.kind, 'git-working-tree');
+    assert.deepEqual(aliased, direct, 'an alias identifies the same source and commit');
+    writeWebBuildSource(alias, aliased);
+    assert.ok(verifyWebBuildSource(root));
+    writeFileSync(join(root, 'src', 'new-alias-module.ts'), 'export const added = true;');
+    assert.throws(() => verifyWebBuildSource(alias), /web build belongs to different or changed source/);
+    assert.equal(sourceIdentity(alias).dirty, true);
+  } finally {
+    // Unlink the alias itself; never recursively delete its target.
+    if (linked) unlinkSync(alias);
+    rmdirSync(aliasDirectory);
+  }
+}));
+
+test('an export inside another checkout cannot claim its enclosing Git identity', { skip: !gitAvailable }, () => fixture(root => {
+  const init = spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8', windowsHide: true });
+  assert.equal(init.status, 0, init.stderr);
+  const exported = join(root, 'source-export');
+  mkdirSync(exported);
+  writeFileSync(join(exported, 'SOURCE-FILES.sha256'), `${'0'.repeat(64)}  app.ts\n`);
+  writeFileSync(join(exported, 'app.ts'), 'export const source = true;');
+  const identity = sourceIdentity(exported);
+  assert.equal(identity.kind, 'source-export-inventory-and-walk');
+  assert.equal(identity.commit, null);
 }));

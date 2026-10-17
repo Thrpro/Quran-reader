@@ -1,11 +1,20 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 export const WEB_SOURCE_RECORD = 'WEB-BUILD-SOURCE.json';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const normalized = path => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+
+function sameDirectory(left, right) {
+  try {
+    // Git resolves junctions and Windows short-name paths in --show-toplevel.
+    // Compare filesystem identities rather than rejecting an alias of this
+    // checkout. Keep containment checks below lexical and symlink-rejecting.
+    return normalized(realpathSync.native(left)) === normalized(realpathSync.native(right));
+  } catch { return false; }
+}
 
 function relativePath(root, relative) {
   if (typeof relative !== 'string' || !relative || relative.includes('\\')
@@ -38,7 +47,7 @@ export function sourceIdentity(sourceRoot) {
   const top = git(['rev-parse', '--show-toplevel']);
   // An exported folder can live underneath a different checkout. Do not
   // accidentally attribute that folder to the enclosing repository's commit.
-  if (!top.error && top.status === 0 && normalized(top.stdout.trim()) === normalized(root)) {
+  if (!top.error && top.status === 0 && sameDirectory(top.stdout.trim(), root)) {
     const commit = git(['rev-parse', 'HEAD']);
     const status = git(['status', '--porcelain=v1', '--untracked-files=all']);
     const paths = git(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
