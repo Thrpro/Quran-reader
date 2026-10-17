@@ -104,6 +104,7 @@ export function usePageDrag(options: Options) {
     if (!viewport) return;
     const activeViewport = viewport;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
     const canTurn = (direction: PageTurn) => direction === "next" ? latest.current.canGoNext : latest.current.canGoPrevious;
 
     function createLayer(current: Gesture, direction: PageTurn, active = true) {
@@ -319,6 +320,17 @@ export function usePageDrag(options: Options) {
           if (stableFrames < 4 && settlingFrames++ < 24) warmFrame.current = requestAnimationFrame(warm);
           else {
             warmReady.current = true;
+            // Keep a short readiness window for the next turn, then release
+            // cloned pages/compositor surfaces instead of retaining them idle.
+            warmExpiry.current = window.setTimeout(() => {
+              warmExpiry.current = 0;
+              warmLayer.current?.destroy();
+              warmLayer.current = null;
+              warmDirection.current = null;
+              warmPageKey.current = null;
+              warmUsable.current = false;
+              warmReady.current = false;
+            }, 1500);
             drainQueue.current();
           }
         }
@@ -367,6 +379,7 @@ export function usePageDrag(options: Options) {
     window.addEventListener("focus", prepareAfterLayout);
     document.addEventListener("visibilitychange", hidden);
     reducedMotion.addEventListener("change", cancelInteraction);
+    systemTheme.addEventListener("change", cancelInteraction);
     return () => {
       requestTurn.current = null;
       prewarm.current = null;
@@ -382,16 +395,16 @@ export function usePageDrag(options: Options) {
       window.removeEventListener("focus", prepareAfterLayout);
       document.removeEventListener("visibilitychange", hidden);
       reducedMotion.removeEventListener("change", cancelInteraction);
+      systemTheme.removeEventListener("change", cancelInteraction);
     };
   }, [options.viewport]);
 
   useEffect(() => {
     if (!options.enabled) return;
-    const first = requestAnimationFrame(() => {
-      const second = requestAnimationFrame(() => prewarm.current?.());
-      warmFrame.current = second;
-    });
-    return () => cancelAnimationFrame(first);
+    // Fast navigation cancels speculative rasterization before it starts.
+    // Prepare a fold only after the reader has rested on the current spread.
+    const timer = window.setTimeout(() => prewarm.current?.(), 600);
+    return () => window.clearTimeout(timer);
   }, [options.enabled, options.pageKey, options.layoutKey]);
   return {
     turnPage(direction: PageTurn, repeated = false, source: PageTurnSource = "discrete") {

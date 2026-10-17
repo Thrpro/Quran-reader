@@ -4,7 +4,7 @@ A free, open-source Quran reader for Windows, designed for comfortable Mushaf re
 
 Quran Mushaf Reader is developed with the intention of serving the Book of Allah and making the Quran more accessible to readers, students, and teachers. The project aims to combine a familiar Mushaf presentation with practical tools for recitation, tafsir, and navigation—without altering the underlying Quranic text.
 
-> **Development status:** v0.5.0 is a pre-release. Features and behavior may continue to change as the application develops.
+> **Development status:** the current source is v0.5.7, pending release. The earlier public v0.5.0 corresponds to internal build v0.5.4. See PATCH-NOTES-0.5.7.md for all changes since that release, including the intervening internal builds, and SOURCE-RELEASE.md for build instructions.
 
 ## Features
 

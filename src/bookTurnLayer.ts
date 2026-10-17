@@ -1,5 +1,6 @@
 import { FlipCalculation } from "page-flip/geometry";
 import type { PageTurn } from "./pageGesture";
+import { acquireInkCanvas, releaseInkCanvas } from "./inkCanvasPool";
 
 type Point = { x: number; y: number };
 
@@ -13,6 +14,7 @@ export class BookTurnLayer {
   private readonly spine: number;
   private readonly pageRect: Point[];
   private active = false;
+  private readonly inkCanvases: HTMLCanvasElement[] = [];
 
   constructor(private readonly view: HTMLElement, private readonly width: number,
     private readonly height: number, direction: PageTurn, private readonly corner: "top" | "bottom",
@@ -55,8 +57,24 @@ export class BookTurnLayer {
     wrapper.style.width = `${this.width}px`;
     wrapper.style.height = `${this.height}px`;
     const face = source.cloneNode(true) as HTMLElement;
+    // cloneNode copies canvas dimensions, not its pixels. Copy the verified
+    // artwork once per fold; rotating the face then needs no glyph rendering.
+    const sourceInk = source.querySelectorAll<HTMLCanvasElement>("canvas.shapedInkCanvas");
+    face.querySelectorAll<HTMLCanvasElement>("canvas.shapedInkCanvas").forEach((placeholder, index) => {
+      const original = sourceInk[index];
+      if (blank || !original?.width || !original.height) { placeholder.remove(); return; }
+      const ink = acquireInkCanvas(original.width, original.height);
+      ink.className = original.className;
+      ink.style.cssText = original.style.cssText;
+      ink.getContext("2d", { willReadFrequently: true })?.drawImage(original, 0, 0);
+      placeholder.replaceWith(ink);
+      this.inkCanvases.push(ink);
+    });
     face.removeAttribute("aria-label");
     for (const element of face.querySelectorAll("[id]")) element.removeAttribute("id");
+    // Fold faces are inert artwork. Shaped lines keep source text in invisible
+    // interaction spans; cloning it adds hundreds of unnecessary DOM nodes.
+    for (const span of face.querySelectorAll(".shapedQuranLine .ayahRun")) span.remove();
     if (blank) face.replaceChildren();
     wrapper.append(face);
     return wrapper;
@@ -100,6 +118,11 @@ export class BookTurnLayer {
 
   destroy() {
     this.element.remove();
+    for (const ink of this.inkCanvases) releaseInkCanvas(ink);
+    this.inkCanvases.length = 0;
+    this.under.replaceChildren();
+    this.back.replaceChildren();
+    this.element.replaceChildren();
     if (this.active) this.view.classList.remove("bookTurning");
   }
 }

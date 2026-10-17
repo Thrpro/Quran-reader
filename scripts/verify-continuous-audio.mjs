@@ -19,7 +19,7 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 const browser = await chromium.launch({ channel:'msedge', headless:true, args:['--autoplay-policy=no-user-gesture-required'] });
 try {
  const page=await browser.newPage({viewport:{width:1920,height:1051}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(()=>{localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:604,mode:'spread',theme:'dark',metadataLanguage:'english'}));});
+ await page.addInitScript(()=>{localStorage.setItem('quran-single-recording-v1','false');localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:604,mode:'spread',theme:'dark',metadataLanguage:'english'}));});
  const mp3=await readFile(resolve('tests/fixtures/yasser-112001.mp3'));const requests=[];let failOnce=false;
  await page.route('**/*.mp3',async route=>{requests.push(route.request().url());if(failOnce){failOnce=false;return route.fulfill({status:503,body:'temporary outage'});}await route.fulfill({status:200,headers:{'content-type':'audio/mpeg','content-length':String(mp3.length),'access-control-allow-origin':'*'},body:mp3});});
  await page.goto('http://127.0.0.1:'+server.address().port);const run=page.locator('.readerViewport [data-ayah-key="112:1"]').first();await run.waitFor();
@@ -36,7 +36,7 @@ try {
  await page.waitForFunction(()=>document.querySelector('audio').currentTime>6);
  assert.equal(await audio.evaluate(a=>a.playbackRate),1.5);assert.equal(await audio.getAttribute('src'),initialSrc,'one source spans ayahs');
  await page.screenshot({path:resolve(output,'player-0.4.21.png')});
- await page.getByRole('button',{name:'Pause',exact:true}).click();await page.keyboard.press('Escape');await page.locator('.recitationMini').waitFor();assert.match(await page.locator('.recitationMini').textContent(),/Resume/);await page.locator('.recitationMini button').nth(1).click();
+ await page.getByRole('button',{name:'Pause',exact:true}).click();await page.keyboard.press('Escape');await page.locator('.recitationMini').waitFor();await page.locator('.recitationMini').getByRole('button',{name:'Resume',exact:true}).waitFor();await page.getByRole('button',{name:'Listening settings',exact:true}).click();
  await page.getByRole('button',{name:'Download surah',exact:true}).click();await page.getByRole('button',{name:'Surah saved offline',exact:true}).waitFor();
  assert.equal(await page.evaluate(async()=> (await(await caches.open('quran-audio-v1')).keys()).length),5,'four ayahs plus basmala');
  await page.getByRole('combobox',{name:'Surah',exact:true}).selectOption('2');await page.getByRole('checkbox',{name:'Continue to next surah',exact:true}).check();

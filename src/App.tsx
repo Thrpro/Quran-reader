@@ -22,7 +22,7 @@ import { hasSavedLanguage, LANGUAGE_SETUP_VERSION } from "./languagePreferences"
 import { LanguageChoices, LanguageSetup } from "./LanguagePicker";
 import type { TafsirSelection, TafsirSource } from "./TafsirPanel";
 import { ReadingTools, type ListeningRequest } from "./ReadingTools";
-import { ShapedQuranLine, type ShapedPage } from "./ShapedQuranLine";
+import { ShapedQuranLine, refreshShapedInk, type ShapedPage } from "./ShapedQuranLine";
 
 // Study HTML sanitizing and the optional library are needed only when opened.
 const TafsirPanel = lazy(() => import("./TafsirPanel").then(module => ({ default: module.TafsirPanel })));
@@ -863,6 +863,8 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
   clockFormat,
   highlightedAyah,
   recitationAyah,
+  renderScale,
+  inkTheme,
 }: {
   page: QpcPage;
   contextualText: boolean;
@@ -875,6 +877,8 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
   clockFormat: ClockFormat;
   highlightedAyah: HighlightedAyah | null;
   recitationAyah: string | null;
+  renderScale: number;
+  inkTheme: string;
 }) {
   return (
     <article
@@ -899,7 +903,7 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
         const shape = contextualText ? page.shaped?.lines[line.lineNumber] : undefined;
         if (shape && page.outlines) return <ShapedQuranLine key={line.lineNumber}
           shape={shape} outlines={page.outlines} words={line.words} lineNumber={line.lineNumber}
-          highlighted={highlightedAyah} reciting={recitationAyah} darkInk={contextualInkWeight} />;
+          highlighted={highlightedAyah} reciting={recitationAyah} darkInk={contextualInkWeight} renderScale={renderScale} inkTheme={inkTheme} />;
         const surah = line.surahNumber ? surahsById.get(line.surahNumber) : null;
         const text =
           line.type === "surah_name" && surah
@@ -928,6 +932,15 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
       <PageSectionMark meta={meta} metadataLanguage={metadataLanguage} />
     </article>
   );
+}, (previous, next) => {
+  // Page chrome is derived afresh by the parent. Compare its scalar fields so
+  // hover/menu updates do not walk every line of all four offscreen previews.
+  const { meta: oldMeta, ...oldProps } = previous;
+  const { meta: newMeta, ...newProps } = next;
+  return Object.keys(oldProps).every(key =>
+    Object.is(oldProps[key as keyof typeof oldProps], newProps[key as keyof typeof newProps]))
+    && (oldMeta === newMeta || (!!oldMeta && !!newMeta
+      && Object.keys(oldMeta).every(key => Object.is(oldMeta[key as keyof PageChromeMeta], newMeta[key as keyof PageChromeMeta]))));
 });
 
 function PageTurnPreviews({ pageNumbers, cache, renderPage }: {
@@ -1120,6 +1133,7 @@ export default function App() {
   const [isJumpOpen, setIsJumpOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [readingToolsOpen, setReadingToolsOpen] = useState(false);
+  const [playbackDockVisible, setPlaybackDockVisible] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(() => !isRustNativeHost());
   const controlsHideTimerRef = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1173,7 +1187,7 @@ export default function App() {
     return page;
   }));
   // Enhanced artwork has independent ownership: optional work never gates reading.
-  const [shapedCache] = useState(() => new AsyncPageCache<QpcPage>(32, async (pageNumber) => {
+  const [shapedCache] = useState(() => new AsyncPageCache<QpcPage>(12, async (pageNumber) => {
     outlinesRef.current ??= fetchJson<Record<number, string>>("/experimental/digital-khatt/shaped/glyphs.json")
       .catch(error => { outlinesRef.current = null; throw error; });
     const [page, shaped, outlines] = await Promise.all([
@@ -1533,24 +1547,27 @@ export default function App() {
   }, [currentQpcPageNumbers, isSpreadMode, settings.page, spread.leftPage, spread.rightPage]);
 
   const readAheadQpcPageNumbers = useMemo(() => {
+    const distance = settings.contextualText ? 4 : 8;
     const pages = new Set<number>();
     const addPage = (page: number | null) => {
       if (page !== null && page >= 1 && page <= PAGE_COUNT) pages.add(page);
     };
 
     if (isSpreadMode) {
-      for (const offset of [-8, -6, -4, -2, 2, 4, 6, 8]) {
+      for (let offset = -distance; offset <= distance; offset += 2) {
+        if (offset === 0) continue;
         addPage(spread.rightPage + offset);
         addPage(spread.leftPage === null ? null : spread.leftPage + offset);
       }
     } else {
-      for (const offset of [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8]) {
+      for (let offset = -distance; offset <= distance; offset++) {
+        if (offset === 0) continue;
         addPage(settings.page + offset);
       }
     }
 
     return Array.from(pages);
-  }, [isSpreadMode, settings.page, spread.leftPage, spread.rightPage]);
+  }, [isSpreadMode, settings.page, spread.leftPage, spread.rightPage, settings.contextualText]);
 
   useEffect(() => {
     if (!settings.contextualText || !data) return;
@@ -1743,7 +1760,7 @@ export default function App() {
       window.visualViewport?.removeEventListener("scroll", scheduleUpdate);
       window.cancelAnimationFrame(frame);
     };
-  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen]);
+  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen, playbackDockVisible]);
 
   const previousReaderBounds = useRef<DOMRect | null>(null);
   const readerLayoutAnimation = useRef<Animation | null>(null);
@@ -1760,10 +1777,16 @@ export default function App() {
     if (!previous || !next.width || !next.height || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (Math.abs(previous.x - next.x) + Math.abs(previous.y - next.y) + Math.abs(previous.width - next.width) < 1) return;
     const baseTransform = getComputedStyle(surface).transform;
-    readerLayoutAnimation.current = surface.animate([
+    const animation = surface.animate([
       { transformOrigin: "0 0", transform: `translate(${previous.x - next.x}px, ${previous.y - next.y}px) scale(${previous.width / next.width}, ${previous.height / next.height}) ${baseTransform === "none" ? "" : baseTransform}` },
       { transformOrigin: "0 0", transform: baseTransform },
     ], { duration: 220, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+    readerLayoutAnimation.current = animation;
+    // A layout animation can temporarily scale the measured canvas geometry.
+    // Rasterize once at its final display size, without a continuous paint loop.
+    void animation.finished.then(() => {
+      if (readerLayoutAnimation.current === animation) refreshShapedInk();
+    }, () => {});
   }, [readerScale, Boolean(tafsirSelection), areCurrentQpcPagesLoaded, isSpreadMode]);
 
   useEffect(() => {
@@ -2034,6 +2057,8 @@ export default function App() {
           key={`digital-khatt-page-${pageNumber}`}
           contextualText={settings.contextualText}
           contextualInkWeight={contextualInkWeight}
+          renderScale={readerScale}
+          inkTheme={settings.theme}
           page={qpcPage}
           surahsById={surahsById}
           meta={meta}
@@ -2290,8 +2315,8 @@ export default function App() {
     <main
       ref={appShellRef}
       data-interface-language={settings.metadataLanguage}
-      className={`appShell ${isRustHost ? "rustHost" : ""} ${isJumpOpen || isSettingsOpen || readingToolsOpen ? "toolPanelOpen" : ""} highlight-${settings.highlightColor} ${isFullscreen ? "fullscreenReader" : ""} theme-${settings.theme} sizing-${settings.sizePreset} ${settings.showClock ? "clock-visible" : "clock-hidden"} ${tafsirSelection ? "studyOpen" : retainedTafsir ? "studyClosing" : ""} ${controlsVisible ? "controlsVisible" : "controlsHidden"}`}
-      style={readerStyle}
+      className={`appShell ${playbackDockVisible ? "playbackDockVisible" : ""} ${isRustHost ? "rustHost" : ""} ${isJumpOpen || isSettingsOpen || readingToolsOpen ? "toolPanelOpen" : ""} highlight-${settings.highlightColor} ${isFullscreen ? "fullscreenReader" : ""} theme-${settings.theme} sizing-${settings.sizePreset} ${settings.showClock ? "clock-visible" : "clock-hidden"} ${tafsirSelection ? "studyOpen" : retainedTafsir ? "studyClosing" : ""} ${controlsVisible ? "controlsVisible" : "controlsHidden"}`}
+      style={{ ...readerStyle, "--playback-dock-reserve": `${playbackDockVisible}px` } as CSSProperties}
       tabIndex={-1}
       onPointerMove={(event) => { if (!isRustHost && event.clientY <= 12) revealControls(); }}
       onFocusCapture={(event) => {
@@ -2922,6 +2947,7 @@ export default function App() {
       ) : null}
 
       {data ? <ReadingTools listeningRequest={listeningRequest} language={settings.metadataLanguage} surahs={data.surahs}
+        onPlaybackDockChange={setPlaybackDockVisible}
         integrateTitleBar={isRustHost && !isFullscreen} controlsEnabled={settings.hasChosenLanguage}
         dismissRequest={readingToolsDismiss}
         onBeforeOpen={() => { setIsJumpOpen(false); setIsSettingsOpen(false); setTafsirSelection(null); hideControls(); }}

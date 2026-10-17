@@ -1,11 +1,7 @@
-# Shipping source release: 0.5.4
+# Current development source: 0.5.7
 
-This archive includes the unchanged v0.5.4 application source in src/ and the Rust host, the reader resources, locked dependencies, current build/installer scripts, tests and font-shaping tools. Historical WinUI/.NET and standalone-native hosts, QPC experiments, unused fonts/frame artwork, screenshots, binaries, backups and caches are excluded.
+PATCH-NOTES-0.5.7.md is the cumulative change summary from public v0.5.0 (internal v0.5.4) to this development build, including internal 0.5.5 and 0.5.6. PATCH-NOTES-0.5.6.md remains the narrower historical development note. Measured memory results and their limits are in MEMORY-PERFORMANCE.md. Existing release tags and downloads are preserved. This working tree is not a published release.
 
-The current Rust host still references windows/QuranMushaf.Windows/Assets/app.ico. Only this icon is retained at that path; .NET is not required. Shared installer/audit scripts retain inactive legacy branches to avoid changing the shipping build logic.
+Build on Windows x64 using Node.js 24 and the Rust MSVC toolchain: npm ci, cargo fetch --locked --manifest-path windows/QuranMushaf.Rust/Cargo.toml, then npm run publish:windows. Rust standard-library notices (rust-docs component) and Windows C++ build tools are required. Inno Setup 6 is needed only for npm run installer:windows. Normal builds use the included processed Quran resources; optional raw-data re-import commands require upstream inputs described in their scripts.
 
-Build prerequisites and commands are in README.md. Run npm ci and cargo fetch --locked --manifest-path windows/QuranMushaf.Rust/Cargo.toml on a fresh machine before npm run publish:windows. Inno Setup 6 is required for npm run installer:windows.
-
-All processed runtime resources are included. Font outlines can be regenerated with npm run shape:pages; this requires Edge. Two upstream Digital Khatt layout databases are included for validation and build-digital-khatt-pages.mjs. Optional historical upstream re-import commands process:qul and import:study require separately obtained raw QUL/study downloads in work/ as specified in their scripts; they are not part of a normal build. The application and Quran text are unchanged.
-
-SOURCE-FILES.sha256 covers files copied unchanged from the previous source snapshot. EXPORT-AUDIT.json lists excluded files and the few release documentation/package-script edits. Fonts, Quran data and third-party code retain the terms in their notices; application code is MIT.
+The host uses WebView2, not .NET. The historical Windows project path is retained only for Assets/app.ico, referenced by the Rust resource compiler. Preserve .gitattributes so Git does not alter resource bytes. SOURCE-FILES.sha256 covers this source snapshot, excluding itself and .git metadata. Licenses and resource notices remain applicable.

@@ -5,9 +5,9 @@ import { ReciterPicker } from "./ReciterPicker";
 import { RecitationStream, type StreamStatus } from "./recitationStream";
 import { recitationPlan } from "./recitationPlan";
 import { AudioDownloadError, downloadAudio, type DownloadFailure, type DownloadProgress } from "./audioDownloads";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Headphones, Pause, Play, Target, Trash2, X, Square, Volume2, RotateCcw, RotateCw } from "lucide-react";
+import { Download, Headphones, Pause, Play, Target, Trash2, X, Square, Volume2, RotateCcw, RotateCw, SlidersHorizontal } from "lucide-react";
 import { AYAH_RECITERS, audioUrl, ayahAudioUrl, readReciterCatalog, reciterDisplayName, reciterNameMatches, type Reciter } from "./audioCatalog";
 
 type Surah = { id: number; nameSimple: string; nameArabic: string; versesCount: number };
@@ -52,7 +52,8 @@ function formatDuration(totalSeconds: number) {
     : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 export type ListeningRequest = { id: number; surah: number; ayah: number; end: { surah: number; ayah: number }; label: string };
-export function ReadingTools({ language, surahs, currentSurah, pages, enabled, onOpenChange, onSurahChange, onAyahChange, listeningRequest, integrateTitleBar = false, controlsEnabled = enabled, onBeforeOpen, dismissRequest = 0 }: {
+export function ReadingTools({ language, surahs, currentSurah, pages, enabled, onOpenChange, onSurahChange, onAyahChange, onPlaybackDockChange, listeningRequest, integrateTitleBar = false, controlsEnabled = enabled, onBeforeOpen, dismissRequest = 0 }: {
+  onPlaybackDockChange: (height: number) => void;
   integrateTitleBar?: boolean;
   controlsEnabled?: boolean;
   onBeforeOpen?: () => void;
@@ -77,7 +78,12 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   const completed = useRef((goal.mode === "pages" ? goal.pages.length : goal.seconds / 60) >= goal.target);
   const [playbackMode, setPlaybackMode] = useState<"surah" | "ayah">("ayah");
   const [ayahReciterId, setAyahReciterId] = useState(7);
-  const [useContinuousRecording, setUseContinuousRecording] = useState(false);
+  const [useContinuousRecording, setUseContinuousRecording] = useState(() => {
+    try { return localStorage.getItem("quran-single-recording-v1") !== "false"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("quran-single-recording-v1", String(useContinuousRecording)); } catch { /* Optional preference. */ }
+  }, [useContinuousRecording]);
   const [ayah, setAyah] = useState(1);
   const [reciterId, setReciterId] = useState(0);
   const [recordingId, setRecordingId] = useState(0);
@@ -109,6 +115,17 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('ready');
   const [basmala, setBasmala] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const dockVisible = hasStarted && tab !== "audio";
+  const miniPlayer = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const dock = miniPlayer.current;
+    if (!dockVisible || !dock) { onPlaybackDockChange(0); return; }
+    const measure = () => onPlaybackDockChange(Math.ceil(dock.getBoundingClientRect().height) + 24);
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(dock);
+    return () => observer.disconnect();
+  }, [dockVisible, onPlaybackDockChange]);
+  useEffect(() => () => onPlaybackDockChange(0), [onPlaybackDockChange]);
   const [speed, setSpeed] = useState(1);
   const [volume, setVolume] = useState(1);
   const speedRef = useRef(speed); speedRef.current = speed;
@@ -346,10 +363,11 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }, [audioEnabled, playbackRevision, playbackMode, ayahReciterId, reciterId, recordingId, listeningRange?.id, continuous, useContinuousRecording]);
   function updateClock() {
     const element = audio.current; if (!element) return;
-    const duration = stream.current instanceof TimedRecitation ? stream.current.seekEnd : stream.current ? stream.current.duration : Number.isFinite(element.duration) ? element.duration : 0;
-    setClock({elapsed:element.currentTime,duration,buffered:stream.current?.bufferedSeconds ?? 0,
+    const duration = stream.current ? stream.current.duration : Number.isFinite(element.duration) ? element.duration : 0;
+    const next = {elapsed:Math.floor(element.currentTime * 4) / 4,duration,buffered:Math.floor(stream.current?.bufferedSeconds ?? 0),
       min:stream.current instanceof TimedRecitation ? stream.current.seekStart : element.buffered.length ? element.buffered.start(0) : 0,
-      max:stream.current instanceof TimedRecitation ? stream.current.seekEnd : duration || (element.buffered.length ? element.buffered.end(element.buffered.length-1) : 0)});
+      max:stream.current instanceof TimedRecitation ? stream.current.seekEnd : duration || (element.buffered.length ? element.buffered.end(element.buffered.length-1) : 0)};
+    setClock(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
   }
   function togglePlayback() {
     const element = audio.current; if (!element) return;
@@ -448,10 +466,18 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
       onTimeUpdate={updateClock} onProgress={updateClock} onDurationChange={updateClock}
       onRateChange={() => { if (audio.current && audio.current.playbackRate !== speedRef.current) audio.current.playbackRate = speedRef.current; }}
       onError={() => setAudioError(true)} onEnded={finishRecording} />
-    {hasStarted && tab !== 'audio' ? <div className="recitationMini" dir={ar?'rtl':'ltr'} role="region" aria-label={t('Recitation controls','أدوات التلاوة')}>
-      <button onClick={togglePlayback}>{playing ? <Pause size={18}/> : <Play size={18}/>}<span>{playing?t('Pause','إيقاف مؤقت'):t('Resume','متابعة')}</span></button>
-      <button onClick={() => setTab('audio')}>{ar?title?.nameArabic:title?.nameSimple} · {playbackMode==='ayah'?t('Ayah','الآية')+' '+ayah:formatDuration(clock.elapsed)} · {speed}×</button>
-      <button aria-label={t('Stop recitation','إنهاء التلاوة')} onClick={stopPlayback}><Square size={17}/><span>{t('Stop','إنهاء')}</span></button>
+    {dockVisible ? <div ref={miniPlayer} className="recitationMini" dir={ar?'rtl':'ltr'} role="region" aria-label={t('Recitation controls','أدوات التلاوة')}>
+      <div className="miniRecording"><strong>{ar?title?.nameArabic:title?.nameSimple}</strong><small>{playbackMode==='ayah' ? t('Ayah','الآية')+' '+ayah : t('Full recording','تسجيل السورة')}</small></div>
+      <div className="miniTransport" dir="ltr">
+        <button disabled={!clock.max} onClick={() => seek((audio.current?.currentTime ?? clock.elapsed)-10)} aria-label={t('Back 10 seconds','رجوع ١٠ ثوانٍ')}><RotateCcw size={18}/><span>10</span></button>
+        <button className="primaryPlayback" onClick={togglePlayback} aria-label={playing?t('Pause','إيقاف مؤقت'):t('Resume','متابعة')}>{playing ? <Pause size={22}/> : <Play size={22}/>}</button>
+        <button disabled={!clock.max} onClick={() => seek((audio.current?.currentTime ?? clock.elapsed)+10)} aria-label={t('Forward 10 seconds','تقديم ١٠ ثوانٍ')}><span>10</span><RotateCw size={18}/></button>
+      </div>
+      <div className="miniActions"><button onClick={() => openTab('audio')} aria-label={t('Listening settings','إعدادات الاستماع')} title={t('Listening settings','إعدادات الاستماع')}><SlidersHorizontal size={18}/></button>
+        <button aria-label={t('Stop recitation','إنهاء التلاوة')} title={t('Stop recitation','إنهاء التلاوة')} onClick={stopPlayback}><Square size={17}/></button></div>
+      <div className="miniTimeline" dir="ltr"><span>{formatDuration(clock.elapsed)}</span>
+        <input aria-label={t('Playback position','موضع التشغيل')} type="range" min={clock.min} max={Math.max(clock.min+.1,clock.max)} step="0.1" value={Math.max(clock.min,Math.min(clock.max,clock.elapsed))} disabled={!clock.max} onChange={e=>seek(Number(e.target.value))}/>
+        <span>{clock.duration ? formatDuration(clock.duration) : '—'}</span></div>
     </div> : null}
     {tab ? <aside className="tafsirPanel readingToolsPanel" dir={ar ? "rtl" : "ltr"} lang={ar ? "ar" : "en"} aria-label={t("Reading tools", "أدوات القراءة")}>
       <header className="tafsirPanelHeader"><h2>{tab === "audio" ? t("Listen", "استماع") : t("Daily reading", "الورد اليومي")}</h2>
@@ -500,8 +526,8 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
           <summary>{t("Recording options", "خيارات التسجيل")}<small>{useContinuousRecording ? t("Single surah recording", "تسجيل واحد للسورة") : t("Ayah recordings", "تسجيلات الآيات")}</small></summary>
           <p>{t("Both choices play consecutively and highlight each ayah. The single recording may be a different recitation by the same reciter. Downloads save the whole surah in either case.", "كلا الخيارين يشغّل الآيات بالتتابع مع تمييزها. قد يكون التسجيل الواحد تلاوة أخرى للقارئ نفسه. يُحفظ صوت السورة كاملة عند التنزيل في الحالتين.")}</p>
           <label>{t("Audio source", "مصدر الصوت")}<select value={useContinuousRecording ? "surah" : "ayah"} onChange={e => { continuePlayback.current = playing; setUseContinuousRecording(e.target.value === "surah"); }}>
-            <option value="ayah">{t("Ayah recordings (default)", "تسجيلات الآيات (الافتراضي)")}</option>
-            <option value="surah">{t("Single surah recording", "تسجيل واحد للسورة")}</option>
+            <option value="ayah">{t("Separate ayah recordings", "تسجيلات منفصلة للآيات")}</option>
+            <option value="surah">{t("Single surah recording (recommended)", "تسجيل واحد للسورة (موصى به)")}</option>
           </select></label>
         </details> : null}
         <label>{t("Surah", "السورة")}<select aria-label={t("Surah", "السورة")} value={surah} onChange={e => { setListeningRange(null); const id = Number(e.target.value); setSurah(id); setAyah(1); setPlaybackRevision(n=>n+1); onSurahChange(id); }}>{surahs.map(s => <option key={s.id} value={s.id} disabled={playbackMode === "surah" && !audioUrl(recording, s.id)}>{ar ? s.nameArabic : s.nameSimple}</option>)}</select></label>
@@ -524,7 +550,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
             <button onClick={stopPlayback} title={t('Stop and reset','إنهاء وإعادة ضبط')} aria-label={t('Stop recitation','إنهاء التلاوة')}><Square size={18}/></button>
           </div>
           <input className="recitationSeek" aria-label={t('Playback position','موضع التشغيل')} type="range" min={clock.min} max={Math.max(clock.min+.1,clock.max)} step="0.1" value={Math.max(clock.min,Math.min(clock.max,clock.elapsed))} disabled={!clock.max} onChange={e=>seek(Number(e.target.value))}/>
-          <div className="recitationTimes"><span>{formatDuration(clock.elapsed)}</span><span>{clock.duration ? t('Remaining ','المتبقي ')+formatDuration((clock.duration-clock.elapsed)/speed) : playbackMode==='ayah' ? t('Buffered ','جاهز للتشغيل ')+formatDuration(clock.buffered/speed) : '—'}</span></div>
+          <div className="recitationTimes"><span dir="ltr">{formatDuration(clock.elapsed)} / {clock.duration ? formatDuration(clock.duration) : '—'}</span><span>{clock.max ? t('Remaining ','المتبقي ')+formatDuration((clock.max-clock.elapsed)/speed) : playbackMode==='ayah' ? t('Buffered ','جاهز للتشغيل ')+formatDuration(clock.buffered/speed) : '—'}</span></div>
           <div className="recitationPreferences"><label>{t('Speed','السرعة')}<select aria-label={t('Playback speed','سرعة التشغيل')} value={speed} onChange={e=>changeSpeed(Number(e.target.value))}>{[.5,.75,1,1.25,1.5,1.75,2].map(n=><option key={n} value={n}>{n}×</option>)}</select></label>
           <label><Volume2 size={17}/>{t('Volume','الصوت')}<input aria-label={t('Volume','الصوت')} type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>{const value=Number(e.target.value);setVolume(value);if(audio.current)audio.current.volume=value;}}/></label></div>
           {streamStatus==='buffering'||streamStatus==='retrying'?<p role="status">{streamStatus==='retrying'?t('Connection interrupted. Retrying this ayah…','انقطع الاتصال. جارٍ إعادة تحميل الآية…'):t('Preparing audio…','جارٍ تجهيز التلاوة…')}</p>:null}

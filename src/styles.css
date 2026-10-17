@@ -683,7 +683,8 @@ button:disabled {
 }
 
 .shapedQuranLine { position: relative; height: 32px; }
-.shapedLineInk { position: absolute; width: 100%; height: auto; left: 0; top: 50%; transform: translateY(-50%); background-color: currentColor; mask-size: 100% 100%; mask-repeat: no-repeat; pointer-events: none; z-index: 1; }
+.shapedLineInk { position: absolute; width: 100%; height: auto; left: 0; top: 50%; transform: translateY(-50%); mask-size: 100% 100%; mask-repeat: no-repeat; pointer-events: none; z-index: 1; }
+.shapedInkCanvas { position: absolute; display: block; }
 .shapedAyahRun { position: absolute; top: 0; height: 100%; color: transparent; overflow: hidden; white-space: nowrap; }
 
 .qpcPage.digitalKhattPage .line-condensedToFit {
@@ -1114,7 +1115,7 @@ button:disabled {
   top: 0;
   transform-origin: 0 0;
   contain: strict;
-  will-change: transform, clip-path;
+  will-change: transform;
   backface-visibility: hidden;
 }
 
@@ -2261,8 +2262,18 @@ button:disabled {
 .recitationTimes { color:var(--muted); font-size:13px; margin-bottom:14px; }
 .recitationPreferences label { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .recitationPreferences input { width:100px; }
-.recitationMini { position:fixed; z-index:35; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; padding:6px; max-width:calc(100vw - 24px); background:var(--surface); border:1px solid var(--control-border); border-radius:12px; box-shadow:0 4px 16px #0003; }
-.recitationMini button { display:flex; align-items:center; gap:6px; min-height:40px; }
+.appShell.playbackDockVisible .readerViewport { padding-bottom: var(--playback-dock-reserve); }
+.recitationMini { position:fixed; z-index:35; bottom:8px; left:50%; transform:translateX(-50%); display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:4px 12px; padding:8px 14px; width:min(640px,calc(100vw - 24px)); box-sizing:border-box; background:var(--surface); border:1px solid var(--control-border); border-radius:12px; box-shadow:0 2px 10px #0002; }
+.recitationMini button { display:flex; align-items:center; justify-content:center; gap:4px; min-height:40px; min-width:40px; padding:6px; }
+.miniRecording { display:grid; gap:2px; min-width:0; font-size:14px; }
+.miniRecording strong { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.miniRecording small { color:var(--muted); font-size:12px; }
+.miniTransport,.miniActions { display:flex; align-items:center; gap:4px; }
+.miniActions { justify-content:flex-end; }
+.miniTransport .primaryPlayback { border-radius:50%; background:color-mix(in srgb,var(--accent) 20%,var(--surface)); }
+.miniTimeline { grid-column:1/-1; display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.miniTimeline input { flex:1; min-width:0; margin:0; accent-color:var(--accent); }
+@media(max-width:440px) { .recitationMini { gap:4px; padding-inline:8px; } .miniRecording { font-size:12px; } .miniTransport { gap:0; } .miniActions { gap:0; } }
 @media(max-width:500px) { .recitationPreferences {flex-wrap:wrap;} .recitationButtons {flex-wrap:wrap;} }
 
 .ayahActionsMenu { width:min(290px,calc(100vw - 24px)); box-sizing:border-box; padding:8px; }
@@ -2281,7 +2292,6 @@ button:disabled {
 .ayahActionsMenu .ayahListenChoices button { text-align: start; font-size: 13px; padding: 10px; min-height: 40px; }
 @media (prefers-reduced-motion: reduce) { .ayahListenExpand svg { transition: none; } }
 
-@media(min-width:1800px) { .appShell:not(.studyOpen):not(.studyClosing) .recitationMini {left:10px;bottom:16px;transform:none;width:190px;flex-wrap:wrap;} .recitationMini button:nth-child(2) {order:3;width:100%;justify-content:center;} }
 
 /* Two-line actions need their natural height. Keep keyboard focus inside each
    button so it cannot collide with the neighbouring hover state. */

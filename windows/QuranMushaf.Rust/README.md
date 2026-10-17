@@ -115,7 +115,13 @@ node scripts/verify-rust-host.mjs --port 9235 --check-persistence
 Reports and screenshots are written under `outputs/rust-host-qa`. Do not
 distribute a QA binary or expose its debugging port to a network.
 
-## Licenses
+## Rollback and licenses
+
+The earlier .NET application is preserved in separate development backups; it
+is not part of this source snapshot. This repository builds the Rust host.
+`windows/QuranMushaf.Windows/Assets/app.ico` retains its historical path because
+the Rust resource compiler uses that icon. Back up the source before replacing
+an existing development build.
 
 The host code is MIT licensed. Its dependencies and Microsoft WebView2 retain
 their own license terms. Quran resources, fonts and recordings are governed by

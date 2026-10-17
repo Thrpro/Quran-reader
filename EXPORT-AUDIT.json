@@ -1329,5 +1329,15 @@
     "rustBuild": "5 native tests passed; release build and 1581 packaged-web file checks passed",
     "installerBuild": "Inno Setup compilation passed (unsigned test build)",
     "browserRuntime": "all runtime checks passed; no JavaScript errors"
+  },
+  "currentSnapshot": {
+    "version": "0.5.7",
+    "previousPublicRelease": "0.5.0",
+    "previousInternalRelease": "0.5.4",
+    "applicationCodeChanged": true,
+    "source": "Current Windows Rust/WebView2 development build",
+    "validation": "BUILD-VERIFICATION.md",
+    "note": "The original export audit above is historical. This snapshot includes subsequent application changes; the exclusion policy and authentic Quran resources are preserved.",
+    "memoryValidation": "MEMORY-PERFORMANCE.md"
   }
 }
