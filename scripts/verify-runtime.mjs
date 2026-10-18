@@ -49,7 +49,7 @@ try {
     window.__measureFold = false;
     const requestFrame = window.requestAnimationFrame.bind(window);
     const cancelFrame = window.cancelAnimationFrame.bind(window);
-    window.requestAnimationFrame = (callback) => {
+    window.__frameProbeRequest = window.requestAnimationFrame = (callback) => {
       const id = requestFrame((now) => {
         window.__pendingFrames.delete(id);
         if (window.__measureFold && document.querySelector(".bookFoldOverlay:not(.bookFoldWarmup)")) window.__foldTimes.push(now);
@@ -58,12 +58,14 @@ try {
       window.__pendingFrames.add(id);
       return id;
     };
-    window.cancelAnimationFrame = (id) => { window.__pendingFrames.delete(id); cancelFrame(id); };
+    window.__frameProbeCancel = window.cancelAnimationFrame = (id) => { window.__pendingFrames.delete(id); cancelFrame(id); };
   });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.clock.setFixedTime(new Date("2026-09-02T09:00:00Z"));
+  // Animation checks must use native browser timers. Playwright clock setup
+  // installs context-wide timer shims and can replace the frame probe above.
+  // The minute-boundary check below uses a separate browser context instead.
 
   const visibleNumbers = () => page.locator(".readerViewport .pageSlot > .qulPage").evaluateAll((els) => els.map((el) =>
     Number(el.getAttribute("aria-label").replace(/[٠-٩]/g, (c) => "٠١٢٣٤٥٦٧٨٩".indexOf(c)).match(/\d+/)?.[0])).sort((a, b) => a - b));
@@ -84,6 +86,8 @@ try {
   }
   async function openAt(number, extra = "") {
     await page.goto(`${base}/?page=${number}${extra}`);
+    assert.ok(await page.evaluate(() => requestAnimationFrame === window.__frameProbeRequest &&
+      cancelAnimationFrame === window.__frameProbeCancel), 'animation probe must not be replaced by timer emulation');
     await checkPages(extra.includes("mode=single") ? [number] : [number % 2 ? number : number - 1, number % 2 ? number + 1 : number]);
     await page.evaluate(() => document.fonts.ready);
     if (!baseline) {
@@ -265,14 +269,22 @@ try {
         // frame count in that wall-time window is not an animation contract.
         for (const fraction of [.25, .5, .75, 1]) {
           await page.mouse.move(x + dx * fraction, y + dy * fraction);
-          await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-          const sample = await page.locator('.bookFoldOverlay:not(.bookFoldWarmup)').evaluate(element => ({
-            progress: Number(element.dataset.progress), direction: element.dataset.direction,
-            transform: element.querySelector('.bookFoldBack')?.style.transform,
-          }));
+          // Capture geometry inside the second callback, after the pointer's
+          // queued paint has had a frame to run. Wait for actual frame delivery
+          // rather than assuming a number of frames within a wall-time window.
+          const sample = await page.evaluate(() => new Promise(done => requestAnimationFrame(firstFrame =>
+            requestAnimationFrame(secondFrame => {
+              const element = document.querySelector('.bookFoldOverlay:not(.bookFoldWarmup)');
+              done({ firstFrame, secondFrame, progress: Number(element?.dataset.progress),
+                direction: element?.dataset.direction,
+                transform: element?.querySelector('.bookFoldBack')?.style.transform });
+            }))));
+          assert.ok(sample.secondFrame > sample.firstFrame, 'held position is sampled across separate browser frames');
+          assert.ok(sample.transform, 'held drag has a visible fold face');
           assert.ok(sample.progress > 0 && sample.progress < 1, 'held drag renders intermediate fold geometry');
           assert.equal(sample.direction, dx > 0 ? 'next' : 'previous');
           if (samples.length) {
+            assert.ok(sample.firstFrame > samples.at(-1).secondFrame, 'pointer checkpoints use later browser frames');
             assert.ok(sample.progress > samples.at(-1).progress, 'fold progress follows the pointer');
             assert.notEqual(sample.transform, samples.at(-1).transform, 'fold geometry changes between rendered positions');
           }
@@ -378,7 +390,8 @@ try {
       const times = await page.evaluate(() => { window.__measureFold = false; return window.__foldTimes; });
       const uniqueTimes = [...new Set(times)];
       report.foldTurns.push({ turn, samples, frameCount: uniqueTimes.length });
-      assert.ok(uniqueTimes.length >= 5, "held intermediate positions span multiple animation frames");
+      assert.equal(samples.length, 4, 'all four held positions are sampled on delivered browser frames');
+      assert.ok(uniqueTimes.length > 0, 'animation probe observes the active fold');
       for (let i = 1; i < uniqueTimes.length; i++) intervals.push(uniqueTimes[i] - uniqueTimes[i - 1]);
       assert.equal(await page.locator(".bookFoldOverlay:not(.bookFoldWarmup)").count(), 0);
       assert.ok(await page.locator("[data-preview-page]").count() <= 6);
@@ -503,17 +516,26 @@ try {
     report.checks.push("late page response cannot replace the current spread");
     await page.unroute("**/pages/p401.json");
 
-    // Install fake timers before this page runs application code. Installing
-    // them over timers already created by the real-time reader is undefined.
-    const clockPage = await context.newPage();
+    // Clock emulation affects the whole BrowserContext, not just clockPage.
+    // Isolate it from the live-timer animation probe and install before loading.
+    const clockContext = await browser.newContext({ timezoneId: "Asia/Qatar" });
+    const clockPage = await clockContext.newPage();
     clockPage.on('pageerror', error => errors.push(error.message));
     await clockPage.clock.install({ time: new Date("2026-09-02T09:00:59Z") });
+    await clockPage.addInitScript(() => {
+      localStorage.setItem('quran-reader-onboarding-v2', 'done');
+      localStorage.setItem('quran-mushaf-qul-reader:v1', JSON.stringify({settingsVersion:5,
+        languageSetupVersion:1,hasChosenLanguage:true,page:43,mode:'spread',theme:'dark',
+        metadataLanguage:'english',showClock:true,clockFormat:'24'}));
+    });
     await clockPage.goto(`${base}/?page=43&lang=english`);
     await clockPage.locator('.readerViewport .pageSlot > .qulPage').first().waitFor();
     await clockPage.clock.setSystemTime(new Date("2026-09-02T09:00:59Z"));
     await clockPage.clock.fastForward(1100);
     assert.equal(await clockPage.locator("time").first().textContent(), "12:01");
-    await clockPage.close();
+    await clockContext.close();
+    assert.ok(await page.evaluate(() => requestAnimationFrame === window.__frameProbeRequest &&
+      cancelAnimationFrame === window.__frameProbeCancel), 'isolated clock test leaves the native animation probe intact');
     report.checks.push("clock advances at the minute boundary");
   }
 
