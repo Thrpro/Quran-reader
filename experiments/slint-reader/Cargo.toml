@@ -1,0 +1,51 @@
+[package]
+name = "quran-slint-reader-prototype"
+version = "0.13.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[features]
+qa = []
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-skia", "accessibility", "compat-1-18", "unstable-winit-030"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-normalization = "0.1"
+html-escape = "0.2"
+harfrust = "=0.14.0"
+windows-numerics = "0.3"
+windows-core = "=0.62.2"
+windows-future = "=0.3.2"
+windows = { version = "0.62", features = [
+  "Foundation", "Foundation_Collections", "Media_Core", "Media_Playback", "Storage_Streams",
+  "Win32_Foundation", "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common",
+  "Win32_Graphics_DirectWrite", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm", "Win32_Graphics_Imaging", "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage", "Win32_System_WinRT", "Win32_System_LibraryLoader",
+  "Win32_System_ProcessStatus", "Win32_System_Threading",
+  "Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Networking_WinHttp",
+  "Win32_Security_Cryptography", "Win32_System_SystemInformation", "Win32_Storage_FileSystem",
+  "Win32_UI_Shell", "Win32_UI_Controls_RichEdit", "Win32_UI_HiDpi", "Win32_UI_Controls",
+  "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"
+] }
+png = "0.18"
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[workspace]
+
