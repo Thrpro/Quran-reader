@@ -1338,6 +1338,15 @@
     "source": "Current Windows Rust/WebView2 development build",
     "validation": "BUILD-VERIFICATION.md",
     "note": "The original export audit above is historical. This snapshot includes subsequent application changes; the exclusion policy and authentic Quran resources are preserved.",
-    "memoryValidation": "MEMORY-PERFORMANCE.md"
+    "memoryValidation": "MEMORY-PERFORMANCE.md",
+    "nativePreview": {
+      "added": [
+        "experiments/slint-reader",
+        "windows/QuranMushaf.Native",
+        "scripts/verify-quran-resources.ps1",
+        "docs"
+      ],
+      "note": "windows/QuranMushaf.Native was excluded from the 0.5.4 export and is now included because the Slint preview compiles against it. All other exclusions are unchanged, and the preview resource pack is not stored in Git."
+    }
   }
 }

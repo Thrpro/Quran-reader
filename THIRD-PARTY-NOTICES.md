@@ -33,3 +33,12 @@ the application. Audio recordings are not bundled in the base installer.
 
 - Floating UI: MIT License (menu positioning and keyboard focus).
 - Tabbable (used by Floating UI focus management): MIT License.
+
+## Native reader preview (`experiments/slint-reader`)
+
+- Slint: used under the Slint Royalty-free Desktop, Mobile, and Web Applications
+  License, with attribution in the app's About screen.
+  <https://slint.dev/agreements/slint-royalty-free-license.pdf>
+- Skia: BSD-style license.
+- The locked Rust dependencies and their license texts ship in the `licenses`
+  folder beside the preview application, with the Rust standard-library notices.

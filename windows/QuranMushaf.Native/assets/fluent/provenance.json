@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/microsoft/fluentui-system-icons",
+  "commit": "a347af95478f989038cccbf085978865264c048a",
+  "license": "MIT",
+  "files": [
+    {
+      "name": "arrow-counterclockwise-24.svg",
+      "sha256": "ca716b401557bc94f2a25c40e4f073f2ca936ae0e91ec12beeeba66037267212"
+    },
+    {
+      "name": "checkmark-16.svg",
+      "sha256": "50a932f604e19c291c7ea3e0be927a39c053c389ec006ade5001b87416c1a119"
+    },
+    {
+      "name": "LICENSE.txt",
+      "sha256": "69bc45dc42b9acb96a69823adbc6ae538374e3c0bde169b855b32c48eaaef52f"
+    }
+  ]
+}
