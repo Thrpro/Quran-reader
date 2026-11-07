@@ -212,7 +212,7 @@ impl Controller {
         let mut prefs = inner.prefs.borrow().clone();
         prefs.arabic = ui.get_arabic();
         prefs.onboarding_complete = ui.get_onboarding_complete();
-        prefs.theme = ui.get_theme().clamp(0, 2) as u32;
+        prefs.theme = ui.get_theme().clamp(0, 4) as u32;
         prefs.contextual = ui.get_contextual();
         prefs.show_clock = ui.get_show_clock();
         prefs.clock_24 = ui.get_clock_24();

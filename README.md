@@ -37,7 +37,7 @@ This app puts the Mushaf first. There is a slim title bar, and the rest of the w
 | 📖 **The page comes first** | No permanent toolbars or bottom bar. The Mushaf fills as much of your window as it can. |
 | ✒️ **Sharp at any size** | Pages are drawn for your exact window and display scale with [Digital Khatt](https://digitalkhatt.org), never stretched from an image. |
 | 🍃 **Turns like paper** | Drag a page by its corner and it follows your hand, or tap an arrow key. Tap quickly and every turn is kept. |
-| 🌙 **Comfortable day or night** | Light, dark and sepia themes, in a full Arabic or English interface. |
+| 🌙 **Comfortable day or night** | Five themes, from light and sepia to dark gray, pure black and navy night, in a full Arabic or English interface. |
 | 🔒 **Yours to inspect** | No account and no ads. The code is open, and every bundled Quran file is listed with a checksum you can verify. |
 
 ## See it
@@ -51,9 +51,13 @@ This app puts the Mushaf first. There is a slim title bar, and the rest of the w
 </tr>
 <tr>
 <td align="center"><sub>Light theme, English interface</sub></td>
-<td align="center"><sub>Dark theme, Arabic interface</sub></td>
+<td align="center"><sub>Dark gray theme, Arabic interface</sub></td>
 </tr>
 </table>
+
+<img src="docs/screenshots/themes.png" alt="The same page in the five themes: light, sepia, dark gray, pure black and navy night" width="100%">
+
+<p align="center"><sub>Light · Sepia · Dark gray · Pure black · Navy night</sub></p>
 
 ### Study beside the page, not on top of it
 

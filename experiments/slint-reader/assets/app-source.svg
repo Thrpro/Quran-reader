@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect x="8" y="8" width="240" height="240" rx="53" fill="#104d3d"/>
-  <rect x="13" y="13" width="230" height="230" rx="49" fill="none" stroke="#3c806b" stroke-width="2"/>
-  <path d="M128 78 C109 63 76 60 47 68 C43 69 42 72 42 77 V176 C74 166 105 170 128 186 Z M128 78 C147 63 180 60 209 68 C213 69 214 72 214 77 V176 C182 166 151 170 128 186 Z" fill="#f3eee1"/>
-  <path d="M128 78 V186" fill="none" stroke="#31715d" stroke-width="4"/>
-  <path d="M53 82 C79 77 104 80 119 91 M203 82 C177 77 152 80 137 91" fill="none" stroke="#b9caba" stroke-width="2.8"/>
-  <path d="M47 182 C77 173 105 177 128 193 C151 177 179 173 209 182" fill="none" stroke="#d1ad6f" stroke-width="4"/>
+  <!-- An open Mushaf resting on a rahl (folding reading stand). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12634c"/><stop offset="1" stop-color="#0b3f31"/></linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9925a"/><stop offset="1" stop-color="#8f5d32"/></linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbf6e9"/><stop offset="1" stop-color="#ece2c8"/></linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
+  <path d="M56 214 L176 112" stroke="url(#wood)" stroke-width="20" stroke-linecap="round"/>
+  <path d="M200 214 L80 112" stroke="url(#wood)" stroke-width="20" stroke-linecap="round"/>
+  <path d="M128 168 L44 128 C40 126 38 122 40 118 L66 62 C68 58 72 57 76 59 L128 84 Z" fill="url(#paper)"/>
+  <path d="M128 168 L212 128 C216 126 218 122 216 118 L190 62 C188 58 184 57 180 59 L128 84 Z" fill="url(#paper)"/>
+  <path d="M128 84 V168" stroke="#b98a3e" stroke-width="4"/>
+  <path d="M58 116 L80 70 L124 91 M198 116 L176 70 L132 91" fill="none" stroke="#d9b56c" stroke-width="3" stroke-linejoin="round" opacity=".9"/>
 </svg>

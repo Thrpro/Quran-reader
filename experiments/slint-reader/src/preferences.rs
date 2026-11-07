@@ -53,7 +53,8 @@ pub struct Preferences {
     pub arabic: bool,
     #[serde(default = "legacy_onboarding_complete")]
     pub onboarding_complete: bool,
-    /// 0: dark, 1: light, 2: sepia. There is one source of theme truth.
+    /// 0: dark gray, 1: light, 2: sepia, 3: pure black, 4: navy night.
+    /// There is one source of theme truth.
     pub theme: u32,
     pub contextual: bool,
     pub show_clock: bool,
@@ -113,11 +114,11 @@ fn legacy_onboarding_complete() -> bool {
 }
 impl Preferences {
     pub fn is_dark(&self) -> bool {
-        self.theme == 0
+        matches!(self.theme, 0 | 3 | 4)
     }
     pub fn sanitize(&mut self, surahs: &[Surah]) -> bool {
         let before = self.clone();
-        if self.theme > 2 {
+        if self.theme > 4 {
             self.theme = 0;
         }
         if self.arabic && self.study_source > 1 {

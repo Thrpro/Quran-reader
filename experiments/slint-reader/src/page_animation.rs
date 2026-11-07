@@ -198,6 +198,29 @@ pub fn fold(old: &Surface, new: &Surface, area: Rect, direction: i32, p: f32) ->
     result
 }
 
+/// Page colors per theme: 0 dark gray, 1 light, 2 sepia, 3 pure black (all native
+/// palettes), 4 navy night. Navy uses the WebView reader's colors; its ink has
+/// about 18:1 contrast against the page.
+pub fn palette(theme: u32) -> crate::render::Palette {
+    if theme != 4 {
+        return crate::render::Palette::new(theme);
+    }
+    let c = |r: u8, g: u8, b: u8| windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F {
+        r: r as f32 / 255.,
+        g: g as f32 / 255.,
+        b: b as f32 / 255.,
+        a: 1.,
+    };
+    crate::render::Palette {
+        background: c(7, 17, 31),
+        paper: c(10, 20, 34),
+        ink: c(251, 253, 255),
+        muted: c(170, 184, 199),
+        border: c(42, 69, 100),
+        highlight: c(26, 58, 80),
+    }
+}
+
 pub fn blend(old: &Surface, new: &Surface, p: f32, from: u32, to: u32) -> Vec<u8> {
     if p <= 0. {
         return old.pixels.as_ref().clone();
@@ -205,8 +228,8 @@ pub fn blend(old: &Surface, new: &Surface, p: f32, from: u32, to: u32) -> Vec<u8
     if p >= 1. {
         return new.pixels.as_ref().clone();
     }
-    let a = crate::render::Palette::new(from);
-    let b = crate::render::Palette::new(to);
+    let a = palette(from);
+    let b = palette(to);
     let readable = a.blend(b, p);
     let correction = [
         (readable.ink.r - (a.ink.r + (b.ink.r - a.ink.r) * p)) * 255.,
@@ -293,7 +316,7 @@ mod tests {
     #[test]
     fn theme_transition_never_loses_the_native_ink_against_paper() {
         let surface = |theme| {
-            let p = crate::render::Palette::new(theme);
+            let p = palette(theme);
             Surface {
                 pixels: Arc::new(
                     [p.paper, p.ink]
@@ -329,8 +352,8 @@ mod tests {
             };
             0.2126 * linear(pixel[0]) + 0.7152 * linear(pixel[1]) + 0.0722 * linear(pixel[2])
         };
-        for from in 0..3 {
-            for to in 0..3 {
+        for from in 0..5 {
+            for to in 0..5 {
                 let (old, new) = (surface(from), surface(to));
                 assert_eq!(blend(&old, &new, 0., from, to), *old.pixels);
                 assert_eq!(blend(&old, &new, 1., from, to), *new.pixels);

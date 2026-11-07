@@ -1,4 +1,4 @@
-# Slint reader prototype 0.14
+# Slint reader prototype 0.16
 
 A separate Windows prototype using Slint 1.18.1 controls and the unchanged native DirectWrite/Direct2D Quran renderer. It does not replace the production reader or migrate its profile.
 
@@ -74,6 +74,10 @@ Panels animate a normalized reveal relative to their own entrance edge. Opening 
 In 0.12 the title bar is 28 DIP. The app identity stays on the left; navigation is beside it in English and moves to the right in Arabic. Caption targets retain their 44 DIP width. Full screen moves into Options while F11, Escape and the labelled fullscreen exit remain available. Reading options have grouped controls, compact navigation rows and a collapsed shortcut disclosure.
 
 Search uses a compact segmented category strip, numbered bilingual rows and a separate left scroll gutter. Old rows remain visually steady while a query runs but cannot be activated until the validated results are ready. Up/Down select a result, scroll it into view and Enter opens it through the same guarded callback as a click. Opening Search retains input focus rather than returning it to the reading canvas. Source Quran rendering, adjacent caching and fold behavior are unchanged from the verified 0.11 implementation.
+
+0.16 adds the Pure black and Navy night themes, restyles search to match the WebView reader, hides the page arrows while tafsir is open, and draws page edges as in the WebView reader: copies of the page shifted outward at the sides and below, plus a faint frame line inside the page. Pure black uses the native palette 3; navy night passes its own palette to the unchanged native renderer.
+
+0.15 redraws the page edges as sheets tucked under the page, painted as thin rings so they add almost no GPU work, and makes page rasters transparent outside their rounded frame instead of clipping every frame. Inside the frame the native pixels are unchanged. The interface now draws on the GPU the main screen is connected to (`--gpu display`, the default), which avoids copying frames between GPUs; `--gpu performance` and `--gpu power-saving` override it, as do `WGPU_ADAPTER_NAME` and a per-app choice in Windows graphics settings. The light-brown theme is named Sepia, and the app has a new icon. `verify_contextual.py` checks the contextual data on all 604 pages against the original Digital Khatt layout and word databases.
 
 0.14 draws stacked page edges around the book, as the WebView reader did, and slows a single turn to 380 ms. Queued turns keep the WebView ratio of 175 to 285.
 

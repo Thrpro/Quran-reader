@@ -4,7 +4,7 @@
 use crate::{
     app_core::{self, Rect, SearchKind},
     data::{Resources, Result},
-    render::{BookView, Palette, Renderer},
+    render::{BookView, Renderer},
 };
 use std::{path::PathBuf, sync::Arc, time::Instant};
 use windows::Win32::{
@@ -181,7 +181,7 @@ impl Engine {
             || !(0.5..=4.).contains(&scale)
             || selection
                 .is_some_and(|(s, a)| !crate::data::valid_reference(&self.resources.surahs, s, a))
-            || style.theme > 2
+            || style.theme > 4
             || style
                 .recitation
                 .is_some_and(|(s, a)| !crate::data::valid_reference(&self.resources.surahs, s, a))
@@ -211,7 +211,7 @@ impl Engine {
             BookView {
                 page,
                 area,
-                palette: Palette::new(style.theme),
+                palette: crate::page_animation::palette(style.theme),
                 selection,
                 recitation: style.recitation,
                 opening: style.opening,
@@ -231,7 +231,7 @@ impl Engine {
             }
             raster.wic.CopyPixels(std::ptr::null(), stride, &mut rgba)?;
         }
-        let bg = Palette::new(style.theme).background;
+        let bg = crate::page_animation::palette(style.theme).background;
         let rgba_fingerprint = premultiplied_to_rgba(
             &mut rgba,
             [bg.r, bg.g, bg.b].map(|v| (v.clamp(0., 1.) * 255.).round() as u8),
@@ -338,7 +338,7 @@ impl Engine {
         let (width, height) = self.hover_size;
         let sx = width as f32 / self.image_source.w;
         let sy = height as f32 / self.image_source.h;
-        let palette = Palette::new(self.hover_theme);
+        let palette = crate::page_animation::palette(self.hover_theme);
         let rgb = |c: windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F| {
             [c.r, c.g, c.b].map(|v| v * 255.)
         };

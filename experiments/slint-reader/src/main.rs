@@ -14,6 +14,7 @@ mod controls;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/file_integrity.rs"]
 mod file_integrity;
+mod gpu_choice;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/http_security.rs"]
 mod http_security;
@@ -577,7 +578,7 @@ fn request_render_with_intent(
         arabic: ui.get_arabic(),
         selection: state.selection,
         style: reader::RenderStyle {
-            theme: ui.get_theme().clamp(0, 2) as u32,
+            theme: ui.get_theme().clamp(0, 4) as u32,
             contextual: ui.get_contextual(),
             show_clock: ui.get_show_clock(),
             clock_24: ui.get_clock_24(),
@@ -822,6 +823,76 @@ fn settle_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>
     );
 }
 
+/// Make the page raster transparent outside its rounded paper frame, so the
+/// sheets drawn behind the book show through without clipping every frame.
+/// Pixels inside the frame keep their exact native values; only the canvas
+/// margin and the anti-aliased rounded edge receive alpha.
+fn clear_outside_frame(
+    buffer: &mut SharedPixelBuffer<slint::Rgba8Pixel>,
+    source_w: f32,
+    source_h: f32,
+    frame: [f32; 4],
+) {
+    let (width, height) = (buffer.width() as usize, buffer.height() as usize);
+    if width == 0
+        || height == 0
+        || source_w <= 0.
+        || source_h <= 0.
+        || frame[2] <= 0.
+        || frame[3] <= 0.
+    {
+        return;
+    }
+    let (sx, sy) = (width as f32 / source_w, height as f32 / source_h);
+    // Frame edges and corner radius in pixels.
+    let (left, top) = (frame[0] * sx, frame[1] * sy);
+    let (right, bottom) = (left + frame[2] * sx, top + frame[3] * sy);
+    let radius = 12. * sx.min(sy);
+    let pixels = buffer.make_mut_slice();
+    for row in 0..height {
+        let y = row as f32 + 0.5;
+        let line = &mut pixels[row * width..(row + 1) * width];
+        let vertical = (y - top + 0.5)
+            .clamp(0., 1.)
+            .min((bottom - y + 0.5).clamp(0., 1.));
+        if vertical <= 0. {
+            line.iter_mut()
+                .for_each(|p| *p = slint::Rgba8Pixel::new(0, 0, 0, 0));
+            continue;
+        }
+        // Horizontal inset of the rounded corner on this row.
+        let corner = if y < top + radius {
+            top + radius - y
+        } else if y > bottom - radius {
+            y - (bottom - radius)
+        } else {
+            0.
+        };
+        let inset = if corner > 0. {
+            radius
+                - (radius * radius - corner.min(radius).powi(2))
+                    .max(0.)
+                    .sqrt()
+        } else {
+            0.
+        };
+        let (from, to) = (left + inset, right - inset);
+        for (col, p) in line.iter_mut().enumerate() {
+            let x = col as f32 + 0.5;
+            let horizontal = (x - from + 0.5)
+                .clamp(0., 1.)
+                .min((to - x + 0.5).clamp(0., 1.));
+            let coverage = horizontal * vertical;
+            if coverage < 1. {
+                p.a = (p.a as f32 * coverage).round() as u8;
+                if p.a == 0 {
+                    *p = slint::Rgba8Pixel::new(0, 0, 0, 0);
+                }
+            }
+        }
+    }
+}
+
 fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, output: Output) {
     match output {
         Output::Prefetched(id, pages, bytes) => {
@@ -833,10 +904,21 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
         }
         Output::Motion(id, theme, phase, theme_turn, frame, compute_ms) => {
             if id == state.borrow().generation {
-                let pixels = SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                let mut pixels = SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                     &frame.pixels,
                     frame.width,
                     frame.height,
+                );
+                clear_outside_frame(
+                    &mut pixels,
+                    ui.get_image_w(),
+                    ui.get_image_h(),
+                    [
+                        ui.get_book_x(),
+                        ui.get_book_y(),
+                        ui.get_book_w(),
+                        ui.get_book_h(),
+                    ],
                 );
                 ui.set_presented_theme(theme as i32);
                 ui.set_theme_phase(if theme_turn { phase } else { 1. });
@@ -874,10 +956,21 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 && s.requested
                     .is_some_and(|view| ui.get_presented_theme() == view.style.theme as i32)
                 && r.rgba.len().saturating_mul(3) <= 48 * 1024 * 1024;
-            let buffer = SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            let mut buffer = SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                 &r.rgba,
                 r.pixel_width,
                 r.pixel_height,
+            );
+            clear_outside_frame(
+                &mut buffer,
+                r.source.w,
+                r.source.h,
+                [
+                    r.book_bounds.x - r.source.x,
+                    r.book_bounds.y - r.source.y,
+                    r.book_bounds.w,
+                    r.book_bounds.h,
+                ],
             );
             let presented_theme = s.requested.map_or(ui.get_theme(), |v| v.style.theme as i32);
             if native_turn {
@@ -2394,7 +2487,7 @@ impl Qa {
                 } else {
                     (self.index % 2) as i32
                 });
-                ui.set_dark(ui.get_theme() == 0);
+                ui.set_dark(matches!(ui.get_theme(), 0 | 3 | 4));
                 ui.set_contextual(self.index % 3 == 1);
                 ui.set_single_page(self.index == 7);
                 ui.set_show_clock(false);
@@ -3477,6 +3570,11 @@ fn run() -> Result<()> {
     Ok(())
 }
 fn main() {
+    let args: Vec<_> = std::env::args_os().collect();
+    if let Err(error) = gpu_choice::apply(&args) {
+        eprintln!("Reading prototype failed: {error}");
+        std::process::exit(1);
+    }
     if let Err(error) = run() {
         eprintln!("Reading prototype failed: {error}");
         std::process::exit(1);
@@ -3486,6 +3584,31 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_pixels_outside_the_rounded_frame_become_transparent() {
+        let page = slint::Rgba8Pixel::new(250, 240, 220, 255);
+        let mut buffer = SharedPixelBuffer::<slint::Rgba8Pixel>::new(200, 100);
+        buffer.make_mut_slice().iter_mut().for_each(|p| *p = page);
+        // A 1:1 raster with a frame inset by 10 pixels.
+        clear_outside_frame(&mut buffer, 200., 100., [10., 10., 180., 80.]);
+        let at = |x: usize, y: usize| buffer.as_slice()[y * 200 + x];
+        assert_eq!(at(100, 50), page, "the page itself is unchanged");
+        assert_eq!(at(10, 50), page, "the frame's straight edge stays opaque");
+        assert_eq!(at(5, 50).a, 0, "the margin is cleared");
+        assert_eq!(at(100, 95).a, 0, "the margin below is cleared");
+        assert_eq!(
+            at(10, 10).a,
+            0,
+            "the square corner outside the rounded frame is cleared"
+        );
+        assert_eq!(at(22, 22), page, "inside the corner's curve stays opaque");
+        let edge = (0..12)
+            .map(|i| at(10 + i, 12).a)
+            .find(|a| *a > 0 && *a < 255);
+        assert!(edge.is_some(), "the rounded edge is antialiased");
+        let opaque = buffer.as_slice().iter().filter(|p| **p == page).count();
+        assert!(opaque > 180 * 80 - 4 * 40);
+    }
     #[test]
     fn page_input_accepts_local_digits_and_checks_bounds() {
         assert_eq!(page_number(" ٢٥٥ "), Some(255));

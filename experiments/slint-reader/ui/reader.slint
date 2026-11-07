@@ -7,22 +7,28 @@ export struct HoverRect { x: float, y: float, w: float, h: float }
 export struct HoverPatch { x: float, y: float, w: float, h: float, image: image }
 global UiColors {
  in-out property <bool> keyboard-focus: false;
+ // 0 dark gray, 1 light, 2 sepia, 3 pure black, 4 navy night.
  in-out property <int> theme: 0;
  in-out property <int> old-theme: 0;
  in-out property <float> phase: 1;
- out property <bool> polarity-change: phase > 0 && phase < 1 && ((theme == 0) != (old-theme == 0));
- out property <float> surface-level: (theme == 0 ? 37 : theme == 2 ? 239 : 252) * phase + (old-theme == 0 ? 37 : old-theme == 2 ? 239 : 252) * (1 - phase);
+ pure function dark-theme(t: int) -> bool { return t == 0 || t == 3 || t == 4; }
+ pure function pick(t: int, gray: color, light: color, sepia: color, black: color, navy: color) -> color {
+  return t == 1 ? light : t == 2 ? sepia : t == 3 ? black : t == 4 ? navy : gray;
+ }
+ pure function level(t: int) -> float { return t == 1 ? 252 : t == 2 ? 239 : t == 3 ? 8 : t == 4 ? 22 : 37; }
+ out property <bool> polarity-change: phase > 0 && phase < 1 && (dark-theme(theme) != dark-theme(old-theme));
+ out property <float> surface-level: level(theme) * phase + level(old-theme) * (1 - phase);
  out property <color> readable-ink: surface-level >= 118 ? #000000 : #ffffff;
- out property <float> accent-level: (theme == 0 ? 185 : 95) * phase + (old-theme == 0 ? 185 : 95) * (1 - phase);
- out property <color> canvas: (theme == 0 ? #202020 : theme == 2 ? #e9dfcf : #f1eee8).mix((old-theme == 0 ? #202020 : old-theme == 2 ? #e9dfcf : #f1eee8), phase);
- out property <color> surface: (theme == 0 ? #252525 : theme == 2 ? #f8efde : #fffdf8).mix((old-theme == 0 ? #252525 : old-theme == 2 ? #f8efde : #fffdf8), phase);
- out property <color> field: (theme == 0 ? #2b2b2b : theme == 2 ? #fbf4e7 : #f7f8f4).mix((old-theme == 0 ? #2b2b2b : old-theme == 2 ? #fbf4e7 : #f7f8f4), phase);
- out property <color> ink: polarity-change ? readable-ink : (theme == 0 ? #eeeeee : #253028).mix((old-theme == 0 ? #eeeeee : #253028), phase);
- out property <color> muted: polarity-change ? readable-ink : (theme == 0 ? #aaaaaa : #657267).mix((old-theme == 0 ? #aaaaaa : #657267), phase);
- out property <color> edge: (theme == 0 ? #424242 : theme == 2 ? #d8c9ad : #d5ddd3).mix((old-theme == 0 ? #424242 : old-theme == 2 ? #d8c9ad : #d5ddd3), phase);
- out property <color> accent: (theme == 0 ? #9bc9ac : #2c7150).mix((old-theme == 0 ? #9bc9ac : #2c7150), phase);
- out property <color> accent-ink: polarity-change ? (accent-level >= 118 ? #000000 : #ffffff) : (theme == 0 ? #14261b : #ffffff).mix((old-theme == 0 ? #14261b : #ffffff), phase);
- out property <color> selected: (theme == 0 ? #344c3e : theme == 2 ? #eadfbb : #e8f0e5).mix((old-theme == 0 ? #344c3e : old-theme == 2 ? #eadfbb : #e8f0e5), phase);
+ out property <float> accent-level: (dark-theme(theme) ? 188 : 95) * phase + (dark-theme(old-theme) ? 188 : 95) * (1 - phase);
+ out property <color> canvas: pick(theme, #202020, #f1eee8, #e9dfcf, #000000, #07111f).mix(pick(old-theme, #202020, #f1eee8, #e9dfcf, #000000, #07111f), phase);
+ out property <color> surface: pick(theme, #252525, #fffdf8, #f8efde, #0b0b0b, #0d1a2b).mix(pick(old-theme, #252525, #fffdf8, #f8efde, #0b0b0b, #0d1a2b), phase);
+ out property <color> field: pick(theme, #2b2b2b, #f7f8f4, #fbf4e7, #161616, #13233a).mix(pick(old-theme, #2b2b2b, #f7f8f4, #fbf4e7, #161616, #13233a), phase);
+ out property <color> ink: polarity-change ? readable-ink : pick(theme, #eeeeee, #253028, #253028, #f2f2f2, #f1f6fb).mix(pick(old-theme, #eeeeee, #253028, #253028, #f2f2f2, #f1f6fb), phase);
+ out property <color> muted: polarity-change ? readable-ink : pick(theme, #aaaaaa, #657267, #657267, #a8abb1, #aab8c7).mix(pick(old-theme, #aaaaaa, #657267, #657267, #a8abb1, #aab8c7), phase);
+ out property <color> edge: pick(theme, #424242, #d5ddd3, #d8c9ad, #2b2e33, #2a4564).mix(pick(old-theme, #424242, #d5ddd3, #d8c9ad, #2b2e33, #2a4564), phase);
+ out property <color> accent: pick(theme, #9bc9ac, #2c7150, #2c7150, #73c7a4, #72c7bd).mix(pick(old-theme, #9bc9ac, #2c7150, #2c7150, #73c7a4, #72c7bd), phase);
+ out property <color> accent-ink: polarity-change ? (accent-level >= 118 ? #000000 : #ffffff) : pick(theme, #14261b, #ffffff, #ffffff, #03140d, #052220).mix(pick(old-theme, #14261b, #ffffff, #ffffff, #03140d, #052220), phase);
+ out property <color> selected: pick(theme, #344c3e, #e8f0e5, #eadfbb, #14261c, #173352).mix(pick(old-theme, #344c3e, #e8f0e5, #eadfbb, #14261c, #173352), phase);
 }
 component Action inherits Rectangle {
  in property <string> text;
@@ -108,32 +114,35 @@ component QuietLink inherits Action {
 }
 component SearchTab inherits Rectangle {
  in property <string> text; in property <bool> selected; callback clicked();
- preferred-height: 32px; min-height: 32px; max-height: 32px; min-width: 46px; border-radius: 4px;
- background: root.selected ? UiColors.selected : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field : transparent;
+ preferred-height: 34px; min-height: 34px; max-height: 34px; min-width: 46px; border-radius: 6px;
+ background: root.selected ? UiColors.surface : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.surface.with-alpha(0.5) : transparent;
+ border-width: root.selected ? 1px : 0px; border-color: UiColors.edge;
+ drop-shadow-blur: root.selected ? 3px : 0px; drop-shadow-offset-y: root.selected ? 1px : 0px; drop-shadow-color: root.selected ? #0000001f : transparent;
  accessible-role: button; accessible-label: text; accessible-action-default => { root.clicked(); }
  forward-focus: keys;
- Text { width: parent.width; height: parent.height - 3px; text: root.text; color: root.selected ? UiColors.ink : UiColors.muted; font-size: 13px; font-weight: root.selected ? 600 : 400; horizontal-alignment: center; vertical-alignment: center; }
+ Text { width: parent.width; height: parent.height; text: root.text; color: root.selected ? UiColors.ink : UiColors.muted; font-size: 13px; font-weight: root.selected ? 700 : 500; horizontal-alignment: center; vertical-alignment: center; }
  keys := FocusScope { key-pressed(e) => { if e.text == Key.Return || e.text == " " { root.clicked(); return accept; } return reject; } }
  touch := TouchArea { clicked => { keys.focus(); root.clicked(); } }
 }
 component SearchResult inherits Rectangle {
  in property <SearchEntry> entry; in property <bool> rtl; in property <bool> enabled: true; in property <bool> selected: false;
  callback clicked();
- height: root.entry.detail == "" ? 53px : root.entry.secondary != "" ? 66px : 93px;
+ height: root.entry.detail == "" ? 56px : root.entry.secondary != "" ? 68px : 93px;
  vertical-stretch: 0;
- border-radius: 6px; background: root.selected ? UiColors.selected : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field : transparent;
+ border-radius: 8px; background: root.selected ? UiColors.field : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field.with-alpha(0.6) : transparent;
+ border-width: root.selected ? 1px : 0px; border-color: UiColors.edge;
  accessible-role: button; accessible-label: root.entry.badge + " " + root.entry.title + " " + root.entry.secondary; accessible-description: root.entry.detail; accessible-enabled: enabled;
  accessible-action-default => { if root.enabled { root.clicked(); } }
  forward-focus: keys;
- HorizontalLayout { x: 8px; y: 6px; width: parent.width - 16px; height: root.entry.detail == "" ? parent.height - 12px : 34px; spacing: 12px;
-  if root.entry.badge != "" : Rectangle { layout-order: root.rtl ? 2 : 0; width: 30px; height: 30px; border-radius: 15px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.65); background: transparent;
-   Text { width: parent.width; height: parent.height; text: root.entry.badge; color: UiColors.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+ if root.selected : Rectangle { x: root.rtl ? parent.width - 4px : 1px; y: 10px; width: 3px; height: parent.height - 20px; border-radius: 2px; background: UiColors.accent; }
+ HorizontalLayout { x: 12px; y: 8px; width: parent.width - 24px; height: root.entry.detail == "" ? parent.height - 16px : 36px; spacing: 14px;
+  if root.entry.badge != "" : Rectangle { layout-order: root.rtl ? 2 : 0; width: 34px; height: 34px; border-radius: 17px; border-width: 1px; border-color: UiColors.edge; background: root.selected ? UiColors.surface : transparent;
+   Text { width: parent.width; height: parent.height; text: root.entry.badge; color: UiColors.ink; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
   }
-  Text { layout-order: 1; text: root.entry.title; color: UiColors.ink; font-size: 15px; font-weight: 500; horizontal-stretch: 1; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
-  if root.entry.secondary != "" : Text { layout-order: root.rtl ? 0 : 2; text: root.entry.secondary; color: UiColors.muted; font-size: 13px; width: min(220px, root.width * 0.35); horizontal-alignment: root.rtl ? left : right; vertical-alignment: center; overflow: elide; }
+  Text { layout-order: 1; text: root.entry.title; color: UiColors.ink; font-size: 15px; font-weight: 700; horizontal-stretch: 1; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+  if root.entry.secondary != "" : Text { layout-order: root.rtl ? 0 : 2; text: root.entry.secondary; color: UiColors.muted; font-size: 14px; width: min(220px, root.width * 0.35); horizontal-alignment: root.rtl ? left : right; vertical-alignment: center; overflow: elide; }
  }
  if root.entry.detail != "" : Text { x: 12px; y: root.entry.secondary != "" ? 39px : 44px; width: parent.width - 24px; height: root.entry.secondary != "" ? 20px : 42px; text: root.entry.detail; color: UiColors.muted; font-size: root.entry.secondary != "" ? 11px : 13px; horizontal-alignment: root.rtl ? right : left; wrap: word-wrap; overflow: elide; }
- Rectangle { x: 10px; y: parent.height - 1px; width: parent.width - 20px; height: 1px; background: UiColors.edge.with-alpha(0.4); }
  keys := FocusScope { enabled: root.enabled; key-pressed(e) => { if e.text == Key.Return || e.text == " " { root.clicked(); return accept; } return reject; } }
  touch := TouchArea { enabled: root.enabled; clicked => { keys.focus(); root.clicked(); } }
 }
@@ -443,11 +452,11 @@ export component ReaderWindow inherits Window {
  background: UiColors.canvas;
  init => { UiColors.theme = root.theme; UiColors.old-theme = root.theme; root.presented-theme = root.theme; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; }
  changed dark => {
-  if root.dark { root.theme = 0; } else if root.theme == 0 { root.theme = 1; }
+  if root.dark { if root.theme == 1 || root.theme == 2 { root.theme = 0; } } else if root.theme == 0 || root.theme == 3 || root.theme == 4 { root.theme = 1; }
   Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
   root.render-requested(root.canvas-w, root.canvas-h);
  }
- changed theme => { root.dark = root.theme == 0; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
+ changed theme => { root.dark = root.theme == 0 || root.theme == 3 || root.theme == 4; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
  changed arabic => { root.context-open = false; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
  changed render-generation => { root.context-open = false; }
  changed context-open => { if root.context-open { root.hover-left(); } }
@@ -511,115 +520,102 @@ export component ReaderWindow inherits Window {
     background: UiColors.canvas; vertical-stretch: 1; clip: true;
     changed width => { root.render-requested(self.width / 1px, self.height / 1px); }
     changed height => { root.render-requested(self.width / 1px, self.height / 1px); }
-    Image {
-     x: (root.canvas-x + root.image-x) * 1px; y: root.image-y * 1px; width: root.image-w * 1px; height: root.image-h * 1px;
-     source: root.book-image; image-fit: fill; opacity: root.book-opacity;
-     animate opacity { duration: 100ms; enabled: root.motion-enabled; }
-     accessible-label: root.arabic ? "صفحات المصحف؛ اختر آية أو اضغط بالزر الأيمن لخياراتها" : "Mushaf pages; select a verse or right-click for its actions";
+    // Page edges as in the WebView reader: copies of the page shifted outward
+    // by 3, 6 and 8 px at the sides and 3 and 6 px below, each a step closer to
+    // the edge colour, so a few pages show behind the open book. Each copy is
+    // drawn as a ring, painting only the band that can show around the page.
+    if root.book-w > 0 : Rectangle {
+     x: (root.canvas-x + root.image-x + root.book-x) * 1px; y: (root.image-y + root.book-y) * 1px;
+     width: root.book-w * 1px; height: root.book-h * 1px;
+     for sheet in [
+      { side: 0, below: 6, tone: 0.66 },
+      { side: 0, below: 3, tone: 0.82 },
+      { side: 8, below: 0, tone: 0.58 },
+      { side: 6, below: 0, tone: 0.72 },
+      { side: 3, below: 0, tone: 0.86 },
+     ] : Rectangle {
+      x: -sheet.side * 1px; y: sheet.below * 1px;
+      width: parent.width + sheet.side * 2px; height: parent.height;
+      border-radius: 12px;
+      border-width: (sheet.side + sheet.below + 6) * 1px;
+      border-color: UiColors.surface.mix(UiColors.edge, sheet.tone);
+     }
     }
-    if !root.turn-running && root.turn-blend > 0 && root.previous-book.width > 0 : Image {
-     x: (root.canvas-x + root.image-x) * 1px; y: root.image-y * 1px; width: root.image-w * 1px; height: root.image-h * 1px;
-     source: root.previous-book; image-fit: fill; opacity: root.turn-blend;
-    }
-    if root.turn-running && root.previous-book.width > 0 : Rectangle {
-     x: (root.canvas-x + root.image-x) * 1px; y: root.image-y * 1px;
-     width: root.image-w * 1px; height: root.image-h * 1px; clip: true;
-     // Leave the settled original texture untouched. Paint the destination
-     // only on the lifted side of the crease, within the turning leaf.
-     if root.turn-progress > 0.002 : Rectangle {
-      x: root.turn-single || root.turn-direction > 0 ? 0px : root.image-w / 2 * 1px;
-      width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: parent.height;
-      clip: true;
-      FoldClip {
-       plane-x: root.fold-plane-x - parent.x / 1px; plane-y: root.fold-plane-y; plane-angle: (root.fold-plane-angle + 180) * 1deg;
-       extent: max(root.image-w,root.image-h) * 4px;
-       // Absolute texture coordinates: implicit centering in the oversized
-       // clipping container leaves the revealed part showing the old page.
-       Image { y: 0px; x: root.turn-single || root.turn-direction > 0 ? 0px : -root.image-w / 2 * 1px; width: root.image-w * 1px; height: root.image-h * 1px; source: root.next-book; image-fit: fill; }
+    // Page rasters are transparent outside the rounded paper frame (see
+    // clear_outside_frame), so the sheets show through without a per-frame clip.
+    Rectangle {
+     x: (root.canvas-x + root.image-x + (root.book-w > 0 ? root.book-x : 0)) * 1px;
+     y: (root.image-y + (root.book-w > 0 ? root.book-y : 0)) * 1px;
+     width: (root.book-w > 0 ? root.book-w : root.image-w) * 1px;
+     height: (root.book-w > 0 ? root.book-h : root.image-h) * 1px;
+     Rectangle {
+      x: -(root.book-w > 0 ? root.book-x : 0) * 1px; y: -(root.book-w > 0 ? root.book-y : 0) * 1px;
+      width: root.image-w * 1px; height: root.image-h * 1px;
+      Image {
+       x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
+       source: root.book-image; image-fit: fill; opacity: root.book-opacity;
+       animate opacity { duration: 100ms; enabled: root.motion-enabled; }
+       accessible-label: root.arabic ? "صفحات المصحف؛ اختر آية أو اضغط بالزر الأيمن لخياراتها" : "Mushaf pages; select a verse or right-click for its actions";
       }
-      // The lifted leaf shades the page it is revealing, fading away from the crease.
-      if root.fold-shading : Rectangle {
-       x: root.book-x * 1px - parent.x; y: root.book-y * 1px;
-       width: root.book-w * 1px; height: root.book-h * 1px;
-       border-radius: 12px; clip: true;
-       Rectangle {
-        private property <angle> angle: root.fold-plane-angle * 1deg;
-        width: max(root.image-w,root.image-h) * 4px; height: 32px;
-        x: (root.fold-plane-x - root.book-x) * 1px - Math.cos(self.angle) * self.width / 2 + Math.sin(self.angle) * self.height;
-        y: (root.fold-plane-y - root.book-y) * 1px - Math.sin(self.angle) * self.width / 2 - Math.cos(self.angle) * self.height;
-        transform-origin: {x:0px,y:0px}; transform-rotation: self.angle;
-        background: @linear-gradient(0deg, #000000, transparent); opacity: Math.sin(root.turn-progress * 180deg) * 0.24;
+      if !root.turn-running && root.turn-blend > 0 && root.previous-book.width > 0 : Image {
+       x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
+       source: root.previous-book; image-fit: fill; opacity: root.turn-blend;
+      }
+      if root.turn-running && root.previous-book.width > 0 : Rectangle {
+       x: 0px; y: 0px;
+       width: root.image-w * 1px; height: root.image-h * 1px; clip: true;
+       // Leave the settled original texture untouched. Paint the destination
+       // only on the lifted side of the crease, within the turning leaf.
+       if root.turn-progress > 0.002 : Rectangle {
+        x: root.turn-single || root.turn-direction > 0 ? 0px : root.image-w / 2 * 1px;
+        width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: parent.height;
+        clip: true;
+        FoldClip {
+         plane-x: root.fold-plane-x - parent.x / 1px; plane-y: root.fold-plane-y; plane-angle: (root.fold-plane-angle + 180) * 1deg;
+         extent: max(root.image-w,root.image-h) * 4px;
+         // Absolute texture coordinates: implicit centering in the oversized
+         // clipping container leaves the revealed part showing the old page.
+         Image { y: 0px; x: root.turn-single || root.turn-direction > 0 ? 0px : -root.image-w / 2 * 1px; width: root.image-w * 1px; height: root.image-h * 1px; source: root.next-book; image-fit: fill; }
+        }
+        // The lifted leaf shades the page it is revealing, fading away from the crease.
+        if root.fold-shading : Rectangle {
+         x: root.book-x * 1px - parent.x; y: root.book-y * 1px;
+         width: root.book-w * 1px; height: root.book-h * 1px;
+         // A plain rectangle clip: a rounded one costs a mask on every frame.
+         clip: true;
+         Rectangle {
+          private property <angle> angle: root.fold-plane-angle * 1deg;
+          width: (root.image-w + root.image-h) * 1.5px; height: 32px;
+          x: (root.fold-plane-x - root.book-x) * 1px - Math.cos(self.angle) * self.width / 2 + Math.sin(self.angle) * self.height;
+          y: (root.fold-plane-y - root.book-y) * 1px - Math.sin(self.angle) * self.width / 2 - Math.cos(self.angle) * self.height;
+          transform-origin: {x:0px,y:0px}; transform-rotation: self.angle;
+          background: @linear-gradient(0deg, #000000, transparent); opacity: Math.sin(root.turn-progress * 180deg) * 0.24;
+         }
+        }
        }
+       FoldClip {
+        plane-x: root.fold-plane-x; plane-y: root.fold-plane-y; plane-angle: root.fold-plane-angle * 1deg;
+        extent: max(root.image-w,root.image-h) * 4px;
+        Rectangle {
+         x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
+         width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: root.image-h * 1px;
+         transform-origin: {x:0px,y:0px}; transform-rotation: root.fold-back-angle * 1deg;
+         clip: true;
+         Image { y: 0px; x: !root.turn-single && root.turn-direction > 0 ? -root.image-w / 2 * 1px : 0px; width: root.image-w * 1px; height: parent.height; source: root.next-book; image-fit: fill; }
+         // Soft light across the back of the sheet, so it reads as curved paper.
+         if root.fold-shading && root.turn-direction > 0 : Rectangle { background: @linear-gradient(270deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
+         if root.fold-shading && root.turn-direction <= 0 : Rectangle { background: @linear-gradient(90deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
+        }
+       }
+       // Preparation never replaces a visible face before the corner moves.
+       if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
       }
      }
-     FoldClip {
-      plane-x: root.fold-plane-x; plane-y: root.fold-plane-y; plane-angle: root.fold-plane-angle * 1deg;
-      extent: max(root.image-w,root.image-h) * 4px;
-      Rectangle {
-       x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
-       width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: root.image-h * 1px;
-       transform-origin: {x:0px,y:0px}; transform-rotation: root.fold-back-angle * 1deg;
-       clip: true;
-       Image { y: 0px; x: !root.turn-single && root.turn-direction > 0 ? -root.image-w / 2 * 1px : 0px; width: root.image-w * 1px; height: parent.height; source: root.next-book; image-fit: fill; }
-       // Soft light across the back of the sheet, so it reads as curved paper.
-       if root.fold-shading && root.turn-direction > 0 : Rectangle { background: @linear-gradient(270deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
-       if root.fold-shading && root.turn-direction <= 0 : Rectangle { background: @linear-gradient(90deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
-      }
-     }
-     // Preparation never replaces a visible face before the corner moves.
-     if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
     }
-    // Page edges stacked behind the book, as in the WebView reader: three
-    // layers at each side and two below. Each band lies outside the rounded
-    // paper frame, so it never covers the Quran page.
-    if root.book-w > 0 : stack := Rectangle {
-     private property <float> ox: root.canvas-x + root.image-x + root.book-x;
-     private property <float> oy: root.image-y + root.book-y;
-     private property <float> ow: root.book-w;
-     private property <float> oh: root.book-h;
-     private property <float> r: 12;
-     pure function n(v: float) -> string { return Math.round(v * 100) / 100; }
-     pure function side-band(d: float, right: bool) -> string {
-      if right {
-       return "M " + n(ox + ow - r) + " " + n(oy) + " L " + n(ox + ow + d - r) + " " + n(oy)
-        + " A " + r + " " + r + " 0 0 1 " + n(ox + ow + d) + " " + n(oy + r)
-        + " L " + n(ox + ow + d) + " " + n(oy + oh - r)
-        + " A " + r + " " + r + " 0 0 1 " + n(ox + ow + d - r) + " " + n(oy + oh)
-        + " L " + n(ox + ow - r) + " " + n(oy + oh)
-        + " A " + r + " " + r + " 0 0 0 " + n(ox + ow) + " " + n(oy + oh - r)
-        + " L " + n(ox + ow) + " " + n(oy + r)
-        + " A " + r + " " + r + " 0 0 0 " + n(ox + ow - r) + " " + n(oy) + " Z";
-      }
-      return "M " + n(ox + r) + " " + n(oy) + " L " + n(ox - d + r) + " " + n(oy)
-       + " A " + r + " " + r + " 0 0 0 " + n(ox - d) + " " + n(oy + r)
-       + " L " + n(ox - d) + " " + n(oy + oh - r)
-       + " A " + r + " " + r + " 0 0 0 " + n(ox - d + r) + " " + n(oy + oh)
-       + " L " + n(ox + r) + " " + n(oy + oh)
-       + " A " + r + " " + r + " 0 0 1 " + n(ox) + " " + n(oy + oh - r)
-       + " L " + n(ox) + " " + n(oy + r)
-       + " A " + r + " " + r + " 0 0 1 " + n(ox + r) + " " + n(oy) + " Z";
-     }
-     pure function bottom-band(d: float) -> string {
-      return "M " + n(ox) + " " + n(oy + oh - r) + " L " + n(ox) + " " + n(oy + oh + d - r)
-       + " A " + r + " " + r + " 0 0 0 " + n(ox + r) + " " + n(oy + oh + d)
-       + " L " + n(ox + ow - r) + " " + n(oy + oh + d)
-       + " A " + r + " " + r + " 0 0 0 " + n(ox + ow) + " " + n(oy + oh + d - r)
-       + " L " + n(ox + ow) + " " + n(oy + oh - r)
-       + " A " + r + " " + r + " 0 0 1 " + n(ox + ow - r) + " " + n(oy + oh)
-       + " L " + n(ox + r) + " " + n(oy + oh)
-       + " A " + r + " " + r + " 0 0 1 " + n(ox) + " " + n(oy + oh - r) + " Z";
-     }
-     for band in [
-      { d: 6, kind: 0, tone: 0.66 }, { d: 3, kind: 0, tone: 0.82 },
-      { d: 8, kind: 1, tone: 0.58 }, { d: 6, kind: 1, tone: 0.72 }, { d: 3, kind: 1, tone: 0.86 },
-      { d: 8, kind: 2, tone: 0.58 }, { d: 6, kind: 2, tone: 0.72 }, { d: 3, kind: 2, tone: 0.86 },
-     ] : Path {
-      x: 0px; y: 0px; width: parent.width; height: parent.height;
-      viewbox-x: 0; viewbox-y: 0; viewbox-width: self.width / 1px; viewbox-height: self.height / 1px;
-      commands: band.kind == 0 ? stack.bottom-band(band.d) : stack.side-band(band.d, band.kind == 2);
-      fill: UiColors.surface.mix(UiColors.edge, band.tone);
-      stroke-width: 0px;
-     }
+    if root.book-w > 0 && !root.turn-running : Rectangle {
+     x: (root.canvas-x + root.image-x + root.book-x + 6) * 1px; y: (root.image-y + root.book-y + 6) * 1px;
+     width: (root.book-w - 12) * 1px; height: (root.book-h - 12) * 1px;
+     border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.45);
     }
     if !root.context-open && !root.render-busy && root.hover-rects.length > 0 : Rectangle {
      background: transparent;
@@ -659,9 +655,9 @@ export component ReaderWindow inherits Window {
     }
     if root.render-busy && root.render-generation == 0 : Text { text: root.arabic ? "جارٍ إعداد الصفحات…" : "Preparing pages…"; color: UiColors.muted; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
     HorizontalLayout { x: root.canvas-x * 1px + 8px; y: canvas.height / 2 - 18px; width: root.canvas-w * 1px - 16px; height: 36px;
-     Action { width: 32px; symbol: 3; text: "‹"; quiet: true; hint: root.arabic ? "الصفحة التالية" : "Next page"; clicked => { root.navigate(1); reader-keys.focus(); } }
+     Action { visible: root.panel != "study" && !root.study-closing; width: 32px; symbol: 3; text: "‹"; quiet: true; hint: root.arabic ? "الصفحة التالية" : "Next page"; clicked => { root.navigate(1); reader-keys.focus(); } }
      Rectangle { horizontal-stretch: 1; background: transparent; }
-     Action { width: 32px; symbol: 4; text: "›"; quiet: true; hint: root.arabic ? "الصفحة السابقة" : "Previous page"; clicked => { root.navigate(-1); reader-keys.focus(); } }
+     Action { visible: root.panel != "study" && !root.study-closing; width: 32px; symbol: 4; text: "›"; quiet: true; hint: root.arabic ? "الصفحة السابقة" : "Previous page"; clicked => { root.navigate(-1); reader-keys.focus(); } }
     }
     side := Rectangle {
      visible: root.panel != "" || self.opacity > 0.01;
@@ -700,8 +696,13 @@ export component ReaderWindow inherits Window {
          return reject;
         }
        }
-       Rectangle { preferred-height: 36px; min-height: 36px; max-height: 36px; border-radius: 6px; background: UiColors.field.with-alpha(0.6);
-        HorizontalLayout {padding: 2px; spacing: 2px;
+       HorizontalLayout { height: 20px; spacing: 10px;
+        Rectangle { layout-order: 0; horizontal-stretch: 1; Rectangle { y: parent.height / 2; height: 1px; background: UiColors.edge; } }
+        Text { layout-order: 1; text: root.arabic ? "التصفح والانتقال" : "Browse and go to"; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
+        Rectangle { layout-order: 2; horizontal-stretch: 1; Rectangle { y: parent.height / 2; height: 1px; background: UiColors.edge; } }
+       }
+       Rectangle { preferred-height: 44px; min-height: 44px; max-height: 44px; border-radius: 9px; background: UiColors.field; border-width: 1px; border-color: UiColors.edge;
+        HorizontalLayout {padding: 4px; spacing: 4px;
          for tab[i] in (root.arabic ? ["الكل", "السور", "الصفحات", "الأجزاء", "الأحزاب", "الأرباع"] : ["All", "Surahs", "Pages", "Juz", "Hizb", "Quarters"]) : SearchTab {
           layout-order: root.arabic ? 5 - i : i; horizontal-stretch: 1; text: tab; selected: root.search-mode == i; clicked => {root.search-mode-changed(i);search-field.focus();}
          }
@@ -712,7 +713,7 @@ export component ReaderWindow inherits Window {
         if root.search-busy : Text {layout-order: root.arabic ? 0 : 1; text: root.arabic ? "جارٍ البحث…" : "Searching…"; color: UiColors.muted; font-size: 11px;}
        }
        search-scroll := PanelScroll {vertical-stretch: 1; reset-key: root.search-query + root.search-mode;
-        VerticalLayout {spacing: 2px;
+        VerticalLayout {spacing: 4px;
          for result[index] in root.results : SearchResult {entry: result; rtl: root.arabic; selected: root.search-active-index == index; enabled: !root.search-busy;
           init => {if index == 0 {root.search-result-height = self.height / 1px;}}
           changed height => {if index == 0 {root.search-result-height = self.height / 1px;}}
@@ -730,7 +731,7 @@ export component ReaderWindow inherits Window {
         Text { text: root.arabic ? "اللغة" : "Language"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
         ChoiceField { rtl: root.arabic; label: root.arabic ? "لغة التطبيق" : "Application language"; model: ["العربية", "English"]; current-index: root.arabic ? 0 : 1; selected(i) => { root.arabic = i == 0; reader-keys.focus(); } }
         Text { text: root.arabic ? "المظهر" : "Appearance"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "مظهر التطبيق" : "Application theme"; model: root.arabic ? ["رمادي داكن", "فاتح", "ورقي دافئ"] : ["Dark gray", "Light", "Warm paper"]; current-index <=> root.theme; selected(i) => { root.theme = i; reader-keys.focus(); } }
+        ChoiceField { rtl: root.arabic; label: root.arabic ? "مظهر التطبيق" : "Application theme"; model: root.arabic ? ["رمادي داكن", "فاتح", "ورقي", "أسود", "كحلي"] : ["Dark gray", "Light", "Sepia", "Pure black", "Navy night"]; current-index <=> root.theme; selected(i) => { root.theme = i; reader-keys.focus(); } }
         }
         SectionHeading {text: root.arabic ? "القراءة" : "Reading"; horizontal-alignment: root.arabic ? right : left;}
         SettingsGroup {
