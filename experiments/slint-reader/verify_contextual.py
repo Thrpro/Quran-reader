@@ -29,7 +29,10 @@ for page, line, kind, centered, first, last, surah in layout.execute(
     rows[(page, line)] = (kind, bool(centered), first if first != "" else None, last if last != "" else None)
 words_db = sqlite3.connect(os.path.join(raw, "digital-khatt-v2.db"))
 dk_text = {i: (t, s, a) for i, t, s, a in words_db.execute("select id, text, surah, ayah from words")}
-qul = {w["id"]: (w["surah"], w["ayah"]) for w in json.load(open(os.path.join(root, "data", "qul", "processed", "words.json"), encoding="utf8"))}
+# The QUL word list is optional: it is not part of the public source export.
+qul_path = os.path.join(root, "data", "qul", "processed", "words.json")
+qul = ({w["id"]: (w["surah"], w["ayah"]) for w in json.load(open(qul_path, encoding="utf8"))}
+       if os.path.exists(qul_path) else None)
 
 seen_words = []
 scales, full, centered_lines, scaled_lines = [], 0, 0, []
@@ -63,12 +66,15 @@ for n in range(1, 605):
             t, s, a = dk_text.get(w["id"], (None, None, None))
             if w["text"] != t:
                 problem(n, ln, f"word {w['id']} text differs from the original Digital Khatt database")
-            if (w["surah"], w["ayah"]) != (s, a) or qul.get(w["id"]) != (s, a):
+            if (w["surah"], w["ayah"]) != (s, a) or (qul is not None and qul.get(w["id"]) != (s, a)):
                 problem(n, ln, f"word {w['id']} surah/ayah differs between sources")
         s = shaped.get(str(ln))
         if s is None:
             if n <= 2:
                 stats["opening-page lines drawn with the original font"] += 1
+            elif line["isCentered"]:
+                # Short centred lines are not stretched in the printed Mushaf either.
+                stats["centred lines drawn without elongation"] += 1
             else:
                 problem(n, ln, "no elongated outline for this ayah line")
             continue
@@ -117,6 +123,8 @@ summary = {
     "wordsDuplicated": len(dupes),
     "scaleMin": round(min(scales), 4), "scaleMax": round(max(scales), 4),
     "openingPageLines": stats["opening-page lines drawn with the original font"],
+    "centredLinesWithoutElongation": stats["centred lines drawn without elongation"],
+    "qulWordListChecked": qul is not None,
     "lineScale": {"below 0.80": sum(1 for x in scales if x < 0.80), "0.80-0.90": sum(1 for x in scales if 0.80 <= x < 0.90),
                   "0.90-0.95": sum(1 for x in scales if 0.90 <= x < 0.95), "0.95 and above": sum(1 for x in scales if x >= 0.95)},
     "mostReducedLines": [{"page": p, "line": int(l), "scale": round(sc, 3)} for sc, p, l in sorted(scaled_lines)[:12]],
@@ -129,3 +137,5 @@ for p in problems[:25]:
 if report_path:
     json.dump({"summary": summary, "problems": problems, "missingWordIds": missing[:200]},
               open(report_path, "w", encoding="utf8"), indent=2, ensure_ascii=False)
+if problems or missing or dupes or stats["source hash differs from outlines manifest"]:
+    sys.exit(1)

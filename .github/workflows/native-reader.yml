@@ -1,0 +1,203 @@
+name: Native reader
+
+# Builds, tests and packages the native (Rust + Slint) reader.
+# - Pull requests that touch the reader: build and test only.
+# - Run manually, or push a tag such as v1.0.0: also package the ZIP and installer,
+#   sign them through SignPath once it is set up, and (for tags) attach them to a
+#   draft GitHub release for review.
+# See experiments/slint-reader/installer/SIGNING.md.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'experiments/slint-reader/**'
+      - 'windows/QuranMushaf.Native/**'
+      - '.github/workflows/native-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  READER: experiments/slint-reader
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    permissions:
+      contents: write   # only used to attach files to a draft release for tags
+      actions: read
+    env:
+      SIGNING: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request' }}
+      PACKAGE: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt --no-self-update
+          rustup default 1.99.0
+
+      - name: Read the version and prepare the build environment
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path "$env:READER/Cargo.toml" -Pattern '^version = "(.+)"$' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match Cargo.toml version $version."
+          }
+          "VERSION=$version" >> $env:GITHUB_ENV
+          # The Windows SDK resource compiler embeds the icon and manifest.
+          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter rc.exe |
+            Where-Object FullName -match '\\x64\\rc\.exe$' | Sort-Object FullName -Descending | Select-Object -First 1
+          "RC=$($rc.FullName)" >> $env:GITHUB_ENV
+          # Keep build-machine paths out of the executable.
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
+          $flags = @("--remap-path-prefix=$env:GITHUB_WORKSPACE=.", "--remap-path-prefix=$cargoHome=cargo") -join [char]0x1f
+          "CARGO_ENCODED_RUSTFLAGS=$flags" >> $env:GITHUB_ENV
+          Write-Host "Version $version, rc.exe at $($rc.FullName)"
+
+      - name: Check formatting
+        working-directory: ${{ env.READER }}
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        working-directory: ${{ env.READER }}
+        run: cargo clippy --release --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings
+
+      - name: Test
+        working-directory: ${{ env.READER }}
+        run: cargo test --release --locked --target x86_64-pc-windows-msvc -- --test-threads=1
+
+      - name: Build
+        working-directory: ${{ env.READER }}
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Check that every shipped crate has a license notice
+        if: env.PACKAGE == 'true'
+        shell: pwsh
+        working-directory: ${{ env.READER }}
+        run: |
+          $reader = Join-Path $env:GITHUB_WORKSPACE 'experiments/slint-reader'
+          cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc > "$env:RUNNER_TEMP\metadata.json"
+          & "$reader/installer/package.ps1" -Exe "$reader/target/x86_64-pc-windows-msvc/release/quran-slint-reader-prototype.exe" `
+            -Version $env:VERSION -OutDir "$env:RUNNER_TEMP\package" -AppOnly
+          python "$reader/installer/check_licenses.py" "$env:RUNNER_TEMP\metadata.json" "$env:RUNNER_TEMP\package\Quran-Mushaf-Reader-$env:VERSION\licenses\dependency-inventory.json"
+
+      - name: Check the contextual Mushaf data on all 604 pages
+        if: env.PACKAGE == 'true'
+        shell: pwsh
+        run: |
+          python "$env:GITHUB_WORKSPACE/experiments/slint-reader/verify_contextual.py" "$env:RUNNER_TEMP\package\Quran-Mushaf-Reader-$env:VERSION\Resources" "$env:GITHUB_WORKSPACE" "$env:RUNNER_TEMP\contextual-report.json"
+
+      # Code signing, step 1 of 2: the executable, before it goes into the ZIP and installer.
+      - name: Upload the unsigned executable for signing
+        id: unsigned-exe
+        if: env.SIGNING == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-exe
+          path: ${{ runner.temp }}/package/Quran-Mushaf-Reader-${{ env.VERSION }}/QuranMushaf.SlintReader.exe
+          if-no-files-found: error
+
+      - name: Sign the executable (SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: app-exe
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}/signed-exe
+
+      - name: Use the signed executable
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item "$env:RUNNER_TEMP\signed-exe\QuranMushaf.SlintReader.exe" "$env:RUNNER_TEMP\package\Quran-Mushaf-Reader-$env:VERSION\QuranMushaf.SlintReader.exe" -Force
+
+      - name: Install Inno Setup if needed
+        if: env.PACKAGE == 'true'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Package the ZIP and installer
+        if: env.PACKAGE == 'true'
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/experiments/slint-reader/installer/package.ps1" -Exe unused -Version $env:VERSION `
+            -OutDir "$env:RUNNER_TEMP\package" -FromAppFolder
+
+      # Code signing, step 2 of 2: the installer.
+      - name: Upload the unsigned installer for signing
+        id: unsigned-installer
+        if: env.SIGNING == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: unsigned-installer
+          path: ${{ runner.temp }}/package/release/QuranMushafReader-Setup-x64-${{ env.VERSION }}.exe
+          if-no-files-found: error
+
+      - name: Sign the installer (SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}/signed-installer
+
+      - name: Use the signed installer and refresh checksums
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          $release = "$env:RUNNER_TEMP\package\release"
+          Copy-Item "$env:RUNNER_TEMP\signed-installer\*.exe" $release -Force
+          $sums = Get-ChildItem $release -File | Where-Object Extension -in '.zip', '.exe' | Sort-Object Name |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          [IO.File]::WriteAllText("$release\SHA256SUMS.txt", ($sums -join "`n") + "`n")
+
+      - name: Keep the release files
+        if: env.PACKAGE == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: quran-mushaf-reader-${{ env.VERSION }}${{ env.SIGNING == 'true' && '-signed' || '-unsigned' }}
+          path: |
+            ${{ runner.temp }}/package/release/*
+            ${{ runner.temp }}/contextual-report.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to a draft release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem "$env:RUNNER_TEMP\package\release" -File | ForEach-Object FullName
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $env:GITHUB_REF_NAME already exists; files are in the workflow artifact only."
+          } else {
+            gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft --verify-tag `
+              --title "Quran Mushaf Reader $env:VERSION" --notes "Built by GitHub Actions from $env:GITHUB_SHA. Review, add release notes and publish." @files
+          }
