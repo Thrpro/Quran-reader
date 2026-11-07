@@ -1,0 +1,11 @@
+Microsoft Visual C++ runtime files
+
+vcruntime140.dll, vcruntime140_1.dll and msvcp140.dll in this folder are the
+Microsoft Visual C++ 2015-2026 runtime (x64, version 14.51), copied unchanged
+from the Visual Studio redistributable folder. They are included so the app
+runs without installing the Visual C++ Redistributable separately.
+
+They are redistributed under the Microsoft Visual Studio license terms, which
+permit distributing these files with an application. They are not covered by
+this project's MIT license. Microsoft's redistributable package is available at
+https://aka.ms/vs/17/release/vc_redist.x64.exe

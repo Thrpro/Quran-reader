@@ -133,11 +133,15 @@ Found something that looks wrong in the text? Please [open an issue](https://git
 
 ## Get started
 
-1. Download the latest version from [Releases](https://github.com/Thrpro/Quran-reader/releases).
-2. Run `QuranMushaf.SlintReader.exe`, keeping the `Resources` and `licenses` folders beside it.
-3. Choose your language and start reading.
+1. Download `QuranMushafReader-Setup-x64` from the latest [release](https://github.com/Thrpro/Quran-reader/releases).
+2. Run it. It installs for your Windows account only, so it doesn't ask for administrator rights.
+3. Open Quran Mushaf Reader from the Start menu, choose your language and start reading.
 
-You need 64-bit Windows and the [Microsoft Visual C++ runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe), which many PCs already have. So far, this version has only been tested on Windows 11.
+Prefer not to install? Download the ZIP instead, extract it, and run `QuranMushaf.SlintReader.exe`.
+
+You need 64-bit Windows 10 or 11. Nothing else needs to be installed, because the Visual C++ runtime files are included. So far, this version has only been tested on Windows 11.
+
+Because the installer isn't code-signed yet, Windows may show "Windows protected your PC". Select **More info**, then **Run anyway**.
 
 ## Questions
 
