@@ -1,19 +1,38 @@
 //! Page turns requested while another is running, and how long each one takes.
-//! Timing follows the earlier WebView reader, whose motion is the visual reference.
+//! The curve follows the earlier WebView reader. Its 285 ms felt fast here, where
+//! the turn starts at once, so a single turn is a little slower by default.
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicI64, Ordering};
 
-pub const TURN_MS: i64 = 285;
-const QUEUED_TURN_MS: i64 = 175;
+pub const DEFAULT_TURN_MS: i64 = 380;
+const MIN_TURN_MS: i64 = 150;
+const MAX_TURN_MS: i64 = 900;
 const MIN_RELEASE_MS: i64 = 130;
 const MAX_QUEUED: usize = 10;
 
+static TURN_MS: AtomicI64 = AtomicI64::new(DEFAULT_TURN_MS);
+
+/// Set the length of one unhurried turn, for example from `--turn-ms`.
+pub fn set_turn_ms(ms: i64) {
+    TURN_MS.store(ms.clamp(MIN_TURN_MS, MAX_TURN_MS), Ordering::Relaxed);
+}
+
+fn base_ms() -> i64 {
+    TURN_MS.load(Ordering::Relaxed)
+}
+
+/// Turns waiting behind this one run at the WebView reader's 175:285 ratio.
 pub fn turn_ms(more_queued: bool) -> i64 {
-    if more_queued { QUEUED_TURN_MS } else { TURN_MS }
+    if more_queued {
+        base_ms() * 175 / 285
+    } else {
+        base_ms()
+    }
 }
 
 /// A released drag only travels what remains of the turn.
 pub fn release_ms(progress: f32) -> i64 {
-    MIN_RELEASE_MS.max((TURN_MS as f32 * (1. - progress.clamp(0., 1.))) as i64)
+    MIN_RELEASE_MS.max((base_ms() as f32 * (1. - progress.clamp(0., 1.))) as i64)
 }
 
 #[derive(Default)]
@@ -83,8 +102,14 @@ mod tests {
     }
     #[test]
     fn released_drags_only_animate_the_remaining_travel() {
-        assert_eq!(release_ms(0.), TURN_MS);
+        assert_eq!(release_ms(0.), DEFAULT_TURN_MS);
         assert_eq!(release_ms(1.), MIN_RELEASE_MS);
         assert!(release_ms(0.25) > release_ms(0.5));
+    }
+    #[test]
+    fn queued_turns_are_quicker_than_a_single_turn() {
+        assert_eq!(turn_ms(false), DEFAULT_TURN_MS);
+        assert!(turn_ms(true) < turn_ms(false));
+        assert_eq!(turn_ms(true), DEFAULT_TURN_MS * 175 / 285);
     }
 }

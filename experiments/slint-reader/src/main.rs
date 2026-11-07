@@ -726,10 +726,18 @@ fn resource_root() -> Result<PathBuf> {
     if local.is_dir() {
         return Ok(local.canonicalize()?);
     }
-    // Developer fallback reads only the already verified native package.
-    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../outputs/native-preview-v0.2.29/Resources")
-        .canonicalize()?)
+    // Developer fallback reads only the already verified native package. Release
+    // builds leave it out, so the executable carries no build-machine path.
+    #[cfg(debug_assertions)]
+    {
+        Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../outputs/native-preview-v0.2.29/Resources")
+            .canonicalize()?)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Err("The Resources folder was not found beside the application. Keep it next to the .exe, or pass --resources <folder>.".into())
+    }
 }
 fn png(path: &Path, bytes: &[u8], width: u32, height: u32) -> Result<()> {
     let file = OpenOptions::new().write(true).create_new(true).open(path)?;
@@ -2700,6 +2708,17 @@ fn run() -> Result<()> {
         Some(_) => return Err("--renderer must be gpu or software".into()),
         None => preferences::saved_software_rendering(&profile_directory),
     };
+    // For comparing turn speeds without a rebuild, e.g. `--turn-ms 285`.
+    if let Some(i) = args.iter().position(|arg| arg == "--turn-ms") {
+        match args
+            .get(i + 1)
+            .and_then(|value| value.to_str())
+            .and_then(|value| value.parse::<i64>().ok())
+        {
+            Some(ms) => turn_queue::set_turn_ms(ms),
+            None => return Err("--turn-ms needs a number of milliseconds".into()),
+        }
+    }
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name(

@@ -367,7 +367,7 @@ export component ReaderWindow inherits Window {
  in property <bool> fold-shading: true;
  // The rounded paper frame inside the raster, which the fold's shadow must stay within.
  in property <float> book-x; in property <float> book-y; in property <float> book-w; in property <float> book-h;
- in property <duration> turn-duration: 285ms;
+ in property <duration> turn-duration: 380ms;
  callback navigate-key(int, bool); callback navigate-key-released();
  in-out property <bool> keyboard-focus: false;
  changed keyboard-focus => { UiColors.keyboard-focus = root.keyboard-focus; }
@@ -568,6 +568,58 @@ export component ReaderWindow inherits Window {
      }
      // Preparation never replaces a visible face before the corner moves.
      if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
+    }
+    // Page edges stacked behind the book, as in the WebView reader: three
+    // layers at each side and two below. Each band lies outside the rounded
+    // paper frame, so it never covers the Quran page.
+    if root.book-w > 0 : stack := Rectangle {
+     private property <float> ox: root.canvas-x + root.image-x + root.book-x;
+     private property <float> oy: root.image-y + root.book-y;
+     private property <float> ow: root.book-w;
+     private property <float> oh: root.book-h;
+     private property <float> r: 12;
+     pure function n(v: float) -> string { return Math.round(v * 100) / 100; }
+     pure function side-band(d: float, right: bool) -> string {
+      if right {
+       return "M " + n(ox + ow - r) + " " + n(oy) + " L " + n(ox + ow + d - r) + " " + n(oy)
+        + " A " + r + " " + r + " 0 0 1 " + n(ox + ow + d) + " " + n(oy + r)
+        + " L " + n(ox + ow + d) + " " + n(oy + oh - r)
+        + " A " + r + " " + r + " 0 0 1 " + n(ox + ow + d - r) + " " + n(oy + oh)
+        + " L " + n(ox + ow - r) + " " + n(oy + oh)
+        + " A " + r + " " + r + " 0 0 0 " + n(ox + ow) + " " + n(oy + oh - r)
+        + " L " + n(ox + ow) + " " + n(oy + r)
+        + " A " + r + " " + r + " 0 0 0 " + n(ox + ow - r) + " " + n(oy) + " Z";
+      }
+      return "M " + n(ox + r) + " " + n(oy) + " L " + n(ox - d + r) + " " + n(oy)
+       + " A " + r + " " + r + " 0 0 0 " + n(ox - d) + " " + n(oy + r)
+       + " L " + n(ox - d) + " " + n(oy + oh - r)
+       + " A " + r + " " + r + " 0 0 0 " + n(ox - d + r) + " " + n(oy + oh)
+       + " L " + n(ox + r) + " " + n(oy + oh)
+       + " A " + r + " " + r + " 0 0 1 " + n(ox) + " " + n(oy + oh - r)
+       + " L " + n(ox) + " " + n(oy + r)
+       + " A " + r + " " + r + " 0 0 1 " + n(ox + r) + " " + n(oy) + " Z";
+     }
+     pure function bottom-band(d: float) -> string {
+      return "M " + n(ox) + " " + n(oy + oh - r) + " L " + n(ox) + " " + n(oy + oh + d - r)
+       + " A " + r + " " + r + " 0 0 0 " + n(ox + r) + " " + n(oy + oh + d)
+       + " L " + n(ox + ow - r) + " " + n(oy + oh + d)
+       + " A " + r + " " + r + " 0 0 0 " + n(ox + ow) + " " + n(oy + oh + d - r)
+       + " L " + n(ox + ow) + " " + n(oy + oh - r)
+       + " A " + r + " " + r + " 0 0 1 " + n(ox + ow - r) + " " + n(oy + oh)
+       + " L " + n(ox + r) + " " + n(oy + oh)
+       + " A " + r + " " + r + " 0 0 1 " + n(ox) + " " + n(oy + oh - r) + " Z";
+     }
+     for band in [
+      { d: 6, kind: 0, tone: 0.66 }, { d: 3, kind: 0, tone: 0.82 },
+      { d: 8, kind: 1, tone: 0.58 }, { d: 6, kind: 1, tone: 0.72 }, { d: 3, kind: 1, tone: 0.86 },
+      { d: 8, kind: 2, tone: 0.58 }, { d: 6, kind: 2, tone: 0.72 }, { d: 3, kind: 2, tone: 0.86 },
+     ] : Path {
+      x: 0px; y: 0px; width: parent.width; height: parent.height;
+      viewbox-x: 0; viewbox-y: 0; viewbox-width: self.width / 1px; viewbox-height: self.height / 1px;
+      commands: band.kind == 0 ? stack.bottom-band(band.d) : stack.side-band(band.d, band.kind == 2);
+      fill: UiColors.surface.mix(UiColors.edge, band.tone);
+      stroke-width: 0px;
+     }
     }
     if !root.context-open && !root.render-busy && root.hover-rects.length > 0 : Rectangle {
      background: transparent;

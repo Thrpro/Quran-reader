@@ -6,77 +6,166 @@
 
 ### قارئ المصحف
 
-**The Mushaf, the way a Mushaf should look on your PC.**<br>
-Free, open source, and small enough to feel like a book rather than a browser.
+**A beautiful Mushaf for your Windows PC.**<br>
+Full-window pages, sharp Arabic script, and page turns that feel like paper.<br>
+Free and open source, with no account and no ads.
 
-مصحف رقمي مجاني ومفتوح المصدر لنظام ويندوز
+[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-2f6f4f?style=for-the-badge)](https://github.com/Thrpro/Quran-reader/releases)
 
-[**Download for Windows**](https://github.com/Thrpro/Quran-reader/releases) · [Features](#what-you-get) · [Quran integrity](#the-quran-text-is-never-touched) · [Build from source](#build-from-source)
+[See it](#see-it) · [Features](#everything-you-need-nothing-in-the-way) · [Trust the text](#you-can-check-the-quran-text-yourself) · [Questions](#questions) · [Build it](#build-from-source)
 
-![License: MIT](https://img.shields.io/badge/code-MIT-2f6f4f)
-![Platform: Windows x64](https://img.shields.io/badge/Windows-x64-2f6f4f)
-![Built with Rust and Slint](https://img.shields.io/badge/built%20with-Rust%20%2B%20Slint-2f6f4f)
+<img src="docs/page-turn.gif" alt="Turning Mushaf pages by dragging a corner and with the arrow keys, recorded from the app" width="100%">
 
-<img src="docs/screenshots/theme2-ar.png" alt="A full Mushaf spread in the sepia theme, with Al Imran beginning on the left page" width="100%">
+<sub>Recorded from the app: one page dragged by its corner, then two turns with the arrow key.</sub>
 
 </div>
 
-<!-- TODO before publishing: replace this still with docs/page-turn.gif, recorded from the release build. It will sell the app better than any sentence on this page. -->
+<div dir="rtl">
 
-<img src="docs/screenshots/page-turn.png" alt="A page caught mid-turn, with soft shading on the back of the sheet and a shadow on the page beneath" width="100%">
+**مصحف جميل لجهازك بنظام ويندوز.** صفحات تملأ النافذة، وخط عربي واضح بأي حجم، وتقليب للصفحات يشبه الورق، مع التفسير والتلاوة. مجاني ومفتوح المصدر، دون حساب أو إعلانات.
 
-## Why this exists
+</div>
 
-Most Quran apps for the desktop feel like an afterthought. Some are hundreds of megabytes, arrive as an archive you have to unpack, hide things behind confusing menus, or leave the page small in the middle of a large screen.
+## Open it and read
 
-This one has a simple goal: **open it and read.** The pages fill your screen, the script stays sharp at any window size, and everything else stays out of the way until you ask for it.
+Reading the Quran on a computer should feel calm. Too often the page ends up small in the middle of a large screen, surrounded by menus.
+
+This app puts the Mushaf first. There is a slim title bar, and the rest of the window belongs to the page. Tafsir, recitation and search are one click away, and they leave when you're done.
 
 | | |
 |---|---|
-| **The page comes first** | No permanent toolbars or bottom bar. A slim title bar, then the Mushaf at the largest size your window allows. |
-| **Crisp at any size** | Each page is drawn for your exact window and display scale using [Digital Khatt](https://digitalkhatt.org), not scaled up from an image. |
-| **Turns like paper** | Drag a page from its corner or tap an arrow key. Turns run on your GPU, at up to 144 Hz on the display tested. |
-| **Light on your PC** | About 90 MB on disk, and about 230 MiB of memory after 60 page turns. Details [below](#small-and-light-measured). |
-| **Yours to inspect** | Open source, no account, no ads, and every bundled Quran file is listed with its SHA-256 hash. |
+| 📖 **The page comes first** | No permanent toolbars or bottom bar. The Mushaf fills as much of your window as it can. |
+| ✒️ **Sharp at any size** | Pages are drawn for your exact window and display scale with [Digital Khatt](https://digitalkhatt.org), never stretched from an image. |
+| 🍃 **Turns like paper** | Drag a page by its corner and it follows your hand, or tap an arrow key. Tap quickly and every turn is kept. |
+| 🌙 **Comfortable day or night** | Light, dark and sepia themes, in a full Arabic or English interface. |
+| 🔒 **Yours to inspect** | No account and no ads. The code is open, and every bundled Quran file is listed with a checksum you can verify. |
 
-## What you get
+## See it
+
+<img src="docs/screenshots/theme2-ar.png" alt="A full Mushaf spread in the sepia theme, with Surah Al Imran beginning on the left page" width="100%">
 
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/theme1-en.png" alt="Al-Fatihah and the opening of Al-Baqarah in the light theme with the English interface"></td>
 <td width="50%"><img src="docs/screenshots/theme0-ar.png" alt="The same opening pages in the dark theme with the Arabic interface"></td>
 </tr>
+<tr>
+<td align="center"><sub>Light theme, English interface</sub></td>
+<td align="center"><sub>Dark theme, Arabic interface</sub></td>
+</tr>
 </table>
+
+### Study beside the page, not on top of it
+
+Right-click any ayah to open its tafsir. The Mushaf moves over to make room, so the Quran text stays in full view with the ayah highlighted.
+
+<img src="docs/screenshots/tafsir.png" alt="An English translation with footnotes in a side column, beside a Mushaf spread with the selected ayah highlighted" width="100%">
+
+### Listen, and find anything
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/listening.png" alt="The listening panel with reciter, single-ayah option, playback speed and volume"></td>
+<td width="50%"><img src="docs/screenshots/search.png" alt="The search panel listing surahs, with filters for surahs, pages, juz, hizb and quarters"></td>
+</tr>
+<tr>
+<td align="center"><sub>Choose a reciter, speed and volume</sub></td>
+<td align="center"><sub>Go to any ayah, surah, page, juz or hizb</sub></td>
+</tr>
+</table>
+
+## Everything you need, nothing in the way
 
 **Read**
 - All 604 Mushaf pages, as a two-page spread or a single page
-- Light, dark and sepia themes
 - Optional contextual lettering from Digital Khatt
-- Page turns you can drag from the corner, or trigger with the arrow keys
-- Full screen with <kbd>F11</kbd>, and bookmarks that are saved between sessions
-
-**Find**
-- Search by text, surah, page, juz, hizb or quarter-hizb
-- Arabic and Persian page digits are understood
+- Full screen with <kbd>F11</kbd>, and bookmarks that stay between sessions
+- The app reopens where you stopped
 
 **Understand**
-- Tafsir Al-Mukhtasar and Tafsir Al-Saadi in Arabic, Saheeh International in English, all bundled for offline use
-- Tafsir opens in its own column, so it never covers the Quran text
-- Right-click any ayah for study, listening and bookmarks
+- Tafsir Al-Mukhtasar and Tafsir Al-Saadi in Arabic, and the Saheeh International translation in English
+- All of it bundled, so it works with no internet connection
+- Adjustable text size, with footnotes shown under the text
 
 **Listen**
 - Listen from any ayah to the end of its surah, or to a single ayah
-- A choice of reciters, adjustable speed and volume, and seeking
+- Choose your reciter, speed and volume, skip ten seconds, or seek
 - The current ayah is highlighted on the page as it is recited
 
-**In your language**
-- A full Arabic or English interface, and the layout follows your reading direction
+**Find**
+- Search by text, surah, page, juz, hizb or quarter-hizb
+- Arabic and Persian page digits both work
+
+<details>
+<summary><b>Keyboard shortcuts</b></summary>
+
+| Action | Key |
+|---|---|
+| Turn the page | <kbd>←</kbd> <kbd>→</kbd> |
+| Search | <kbd>Ctrl</kbd>+<kbd>F</kbd> |
+| Listen | <kbd>Ctrl</kbd>+<kbd>L</kbd> |
+| Options | <kbd>Ctrl</kbd>+<kbd>,</kbd> |
+| Play or pause | <kbd>Ctrl</kbd>+<kbd>Space</kbd> |
+| Full screen | <kbd>F11</kbd> |
+| Close a panel, or leave full screen | <kbd>Esc</kbd> |
+
+</details>
+
+## You can check the Quran text yourself
+
+This is the rule the rest of the project is built around: **interface work must never change the Quran.**
+
+- **Sourced, not generated.** The text, page layout, fonts and study data come from the [Quranic Universal Library (QUL)](https://qul.tarteel.ai) by [Tarteel](https://www.tarteel.ai), and from [DigitalKhatt](https://digitalkhatt.org). None of it is AI-generated.
+- **Kept apart from the code.** The app reads its Quran data from a separate resource pack and never regenerates, normalizes or substitutes it.
+- **Checkable by anyone.** `resource-manifest.json` lists a SHA-256 hash for each of the 1,569 bundled files. Run this from the app folder, without launching the app:
+
+  ```powershell
+  ./Verify-Quran-Resources.ps1
+  ```
+
+**What this does and doesn't prove.** A match shows your files are byte-for-byte the ones this project packaged. It isn't a scholarly review, and a comparison of every file against an independently downloaded QUL release hasn't been completed yet, so the project doesn't claim one.
+
+Found something that looks wrong in the text? Please [open an issue](https://github.com/Thrpro/Quran-reader/issues) with the page and line. These reports take priority over everything else.
+
+## Get started
+
+1. Download the latest version from [Releases](https://github.com/Thrpro/Quran-reader/releases).
+2. Run `QuranMushaf.SlintReader.exe`, keeping the `Resources` and `licenses` folders beside it.
+3. Choose your language and start reading.
+
+You need 64-bit Windows and the [Microsoft Visual C++ runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe), which many PCs already have. So far, this version has only been tested on Windows 11.
+
+## Questions
+
+<details>
+<summary><b>Does it work offline?</b></summary>
+
+Reading, search and all bundled tafsir work with no connection. Recitation streams when you ask for it, so listening needs internet.
+</details>
+
+<details>
+<summary><b>Does it cost anything, or collect my data?</b></summary>
+
+It's free, with no account, no ads and no analytics. The only servers it contacts are the recitation providers, and only when you ask to listen.
+</details>
+
+<details>
+<summary><b>Will it slow down my PC?</b></summary>
+
+It's built in native Rust rather than a browser engine. It takes about 90 MB of disk space, and on the test PC it used about 230 MiB of memory after 60 page turns, with idle CPU under 0.1%. <a href="#small-and-light-measured">See how this was measured</a>.
+</details>
+
+<details>
+<summary><b>Page turns look wrong on my PC. What can I do?</b></summary>
+
+Turn on <b>Options → Use software rendering</b> and restart the app, then please <a href="https://github.com/Thrpro/Quran-reader/issues">tell us about your graphics card</a> so we can fix it.
+</details>
 
 ## Small and light, measured
 
 | | Native (this version) | Previous WebView2 version |
 |---|---:|---:|
-| Application and Quran resources on disk | **about 87 MB** | about 61 MB, plus the shared WebView2 runtime |
+| Application and Quran resources on disk | **about 90 MB** | about 61 MB, plus the shared WebView2 runtime |
 | Memory at idle after page turns, standard text | **230 MiB** | 506 MiB |
 | Memory at idle after page turns, contextual lettering | **311 MiB** | 713 MiB |
 | CPU while idle | **under 0.1%** | not measured |
@@ -88,51 +177,12 @@ Working-set memory on Windows 11 with a Ryzen 7 7735HS, in a maximized 1920×108
 
 - **Native, standard text:** 60 spread turns, measured after 10 seconds of idle.
 - **Native, contextual lettering:** 240 spread turns, measured after 10 seconds of idle. Memory was still rising slowly at the end of the run, by about 0.1 MiB per turn. Peak working set was 341 MiB.
-- **Native renderer:** GPU, which is the default. With **Options → Use software rendering**, the same two runs on an earlier build measured 98 MiB and 187 MiB, with less smooth page turns.
+- **Native renderer:** GPU, which is the default. Page turns ran at up to 144 Hz on the display tested. With **Options → Use software rendering**, the same two runs on an earlier build measured 98 MiB and 187 MiB, with less smooth page turns.
 - **WebView2 version:** 60 spread turns, measured after 15 seconds of idle, in headless Microsoft Edge rather than the installed WebView2 host. See [MEMORY-PERFORMANCE.md](MEMORY-PERFORMANCE.md).
 
 The two procedures differ, so treat this as a comparison of scale rather than an exact ratio. Your numbers will vary by hardware and window size.
 
 </details>
-
-<!-- TODO before publishing: re-measure this table on the release build. The native numbers above come from preview 0.13. -->
-
-## The Quran text is never touched
-
-This is the rule the rest of the project is built around.
-
-- **Sourced, not generated.** The Quran text, page layout, fonts and study data come from the [Quranic Universal Library (QUL)](https://qul.tarteel.ai), a project by [Tarteel](https://www.tarteel.ai), and from [DigitalKhatt](https://digitalkhatt.org). None of it is AI-generated.
-- **Separate from the code.** The app reads its Quran data from a resource pack and does not regenerate, normalize or substitute it. Interface work cannot silently change it.
-- **Checkable by you.** `resource-manifest.json` lists the SHA-256 hash of all 1,569 bundled files. Run this from the app folder to check your copy, without launching the app:
-
-  ```powershell
-  ./Verify-Quran-Resources.ps1
-  ```
-
-**What this does and doesn't prove.** A matching hash shows that your files are byte-for-byte the ones this project packaged. It does not by itself show that they match a fresh download from QUL, and it is not a scholarly review of the content. A byte-for-byte comparison of every bundled file against an independently obtained QUL release has not been completed yet, so the project does not claim one.
-
-Found something that looks wrong in the text? Please [open an issue](https://github.com/Thrpro/Quran-reader/issues) with the page and line. Reports like this take priority over everything else.
-
-## Download and run
-
-1. Download the latest version from [Releases](https://github.com/Thrpro/Quran-reader/releases).
-2. Run `QuranMushaf.SlintReader.exe`. Keep the `Resources` and `licenses` folders beside it.
-
-You need Windows 10 or 11 (x64) and the [Microsoft Visual C++ x64 runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe), which many PCs already have. Reading works fully offline. Recitation streams on request, so listening needs an internet connection.
-
-<!-- TODO before publishing: replace these steps once there is an installer. Confirm Windows 10 works, since only Windows 11 has been tested. -->
-
-### Keyboard shortcuts
-
-| Action | Key |
-|---|---|
-| Turn the page | <kbd>←</kbd> <kbd>→</kbd> |
-| Search | <kbd>Ctrl</kbd>+<kbd>F</kbd> |
-| Listen | <kbd>Ctrl</kbd>+<kbd>L</kbd> |
-| Options | <kbd>Ctrl</kbd>+<kbd>,</kbd> |
-| Play or pause | <kbd>Ctrl</kbd>+<kbd>Space</kbd> |
-| Full screen | <kbd>F11</kbd> |
-| Close a panel, or leave full screen | <kbd>Esc</kbd> |
 
 ## Project status
 
@@ -159,15 +209,18 @@ The Quran resources are not built by this step. Use the `Resources` folder from 
 target\x86_64-pc-windows-msvc\release\quran-slint-reader-prototype.exe --resources C:\path\to\Resources
 ```
 
-### How it works
+<details>
+<summary>How it works</summary>
 
 Quran pages are drawn by native **DirectWrite and Direct2D** code in Rust, which also produces the map of where each ayah sits on the page. **[Slint](https://slint.dev)** draws the interface around those pages and never shapes the Quran glyphs itself. A background worker prepares neighbouring pages ahead of time, within a fixed memory limit.
 
 The earlier WebView2 reader is still in this repository, at the root and in `windows/QuranMushaf.Rust`. [SOURCE-RELEASE.md](SOURCE-RELEASE.md) explains how to build it.
 
-## Contributing
+</details>
 
-Help is welcome with accuracy, accessibility, usability, performance and study features. Please open an issue before starting anything large.
+## Help improve it
+
+Bug reports, and help with accuracy, accessibility, usability and study features, are all welcome. Please open an issue before starting anything large.
 
 Proposed changes to Quran text or source data must cite authoritative sources and be carefully verified. Rendering and interface changes must never alter the underlying text.
 
