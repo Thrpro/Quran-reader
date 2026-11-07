@@ -22,8 +22,8 @@ try {
  // Maher intentionally uses the clip engine: the verified publisher timing
  // catalog does not provide a complete table for this curated recording.
  await page.addInitScript(()=>{localStorage.setItem('quran-listening-preferences-v1',JSON.stringify({mode:'ayah',ayahReciterId:1002,speed:1,volume:1,continuous:false}));localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:604,mode:'spread',theme:'dark',metadataLanguage:'english'}));});
- const mp3=await readFile(resolve('tests/fixtures/yasser-112001.mp3'));const requests=[];let failOnce=false;
- await page.route('**/*.mp3',async route=>{requests.push(route.request().url());if(failOnce){failOnce=false;return route.fulfill({status:503,body:'temporary outage'});}await route.fulfill({status:200,headers:{'content-type':'audio/mpeg','content-length':String(mp3.length),'access-control-allow-origin':'*'},body:mp3});});
+ const mp3=await readFile(resolve('tests/fixtures/yasser-112001.mp3'));const requests=[],failedRequests=[];let failOnce=false,failAll=false;
+ await page.route('**/*.mp3',async route=>{requests.push(route.request().url());if(failOnce||failAll){failOnce=false;failedRequests.push(route.request().url());return route.fulfill({status:503,body:'temporary outage'});}await route.fulfill({status:200,headers:{'content-type':'audio/mpeg','content-length':String(mp3.length),'access-control-allow-origin':'*'},body:mp3});});
  await page.goto('http://127.0.0.1:'+server.address().port);const run=page.locator('.readerViewport [data-ayah-key="112:1"]').first();await run.waitFor();
  await run.click({button:'right'});await page.screenshot({path:resolve(output,'right-click-0.4.21.png')});await page.getByRole('button',{name:'Listen from here',exact:false}).click();
  const audio=page.locator('audio');await page.waitForFunction(()=>document.querySelector('audio').currentTime>.2);
@@ -40,12 +40,13 @@ try {
  await page.screenshot({path:resolve(output,'player-0.4.21.png')});
  await page.getByRole('button',{name:'Pause',exact:true}).click();await page.keyboard.press('Escape');
  await page.locator('.readingToolsPanel').waitFor({state:'detached'});await page.waitForTimeout(400);
- if (!await page.locator('.recitationMini').isVisible()) await page.locator('.sidePlayerCompact').getByRole('button',{name:/Show (?:recitation|playback) controls/}).click();
+ if (await page.locator('.recitationMini').getAttribute('data-expanded') !== 'true') await page.getByRole('button',{name:'Show recitation controls',exact:true}).click();
  await page.locator('.recitationMini').getByRole('button',{name:'Resume',exact:true}).waitFor();await page.locator('.recitationMini').getByRole('button',{name:'Listening settings',exact:true}).click();
  await page.getByRole('button',{name:'Download surah',exact:true}).click();await page.getByRole('button',{name:'Surah saved offline',exact:true}).waitFor();
  assert.equal(await page.evaluate(async()=> (await(await caches.open('quran-audio-v1')).keys()).filter(request=>new URL(request.url).pathname.endsWith('.mp3')).length),5,'four ayahs plus basmala; metadata is counted separately');
  await page.getByRole('combobox',{name:'Surah',exact:true}).selectOption('2');await page.getByRole('checkbox',{name:'Continue to next surah',exact:true}).check();
- failOnce=true;await page.getByRole('button',{name:'Play',exact:true}).click();await page.getByRole('status').filter({hasText:'Retrying'}).waitFor();await page.waitForFunction(()=>document.querySelector('audio').currentTime>.2);
+ assert.equal(await audio.evaluate(a=>a.paused),true,'a paused surah selection stays paused');
+ failOnce=true;await page.getByRole('button',{name:'Resume',exact:true}).click();await page.getByRole('status').filter({hasText:'Retrying'}).waitFor();await page.waitForFunction(()=>document.querySelector('audio').currentTime>.2);
  await page.waitForFunction(()=>{const a=document.querySelector('audio');return a.buffered.length && a.buffered.end(a.buffered.length-1)>80;});
  const streamSrc=await audio.getAttribute('src');let previousEnd=0;
  for(let i=0;i<60;i++) {
@@ -58,6 +59,24 @@ try {
  assert.ok(previousEnd>1200,'more than 20 minutes of media across buffer refills');
  assert.ok(await audio.evaluate(a=>a.buffered.start(0)>1000),'old media evicted');
  assert.ok(await audio.evaluate(a=>a.buffered.end(a.buffered.length-1)-a.buffered.start(0)<160),'bounded rolling buffer');
+ // Real MSE decoding and native timers: exhaust only the future request, let
+ // buffered audio finish, then retry the same verse on the existing timeline.
+ failAll=true;const failureStart=failedRequests.length;
+ await audio.evaluate(a=>a.currentTime=a.buffered.end(a.buffered.length-1)-1);
+ await page.getByRole('button',{name:'Retry recitation',exact:true}).waitFor({timeout:40000});
+ const attempts=failedRequests.slice(failureStart);
+ assert.equal(attempts.length,5,'one attempt plus four automatic retries');
+ assert.equal(new Set(attempts).size,1,'recovery never skips the failed verse');
+ const exhaustedCount=requests.length;
+ await page.evaluate(()=>dispatchEvent(new Event('online')));await page.waitForTimeout(1500);
+ assert.equal(requests.length,exhaustedCount,'exhausted playback does not poll the provider');
+ const retryPosition=await audio.evaluate(a=>a.currentTime),retryEnd=await audio.evaluate(a=>a.buffered.end(a.buffered.length-1));
+ failAll=false;await page.getByRole('button',{name:'Retry recitation',exact:true}).click();
+ await page.waitForFunction(end=>{const a=document.querySelector('audio');return !a.paused&&a.buffered.length&&a.buffered.end(a.buffered.length-1)>end+5;},retryEnd);
+ assert.equal(await audio.getAttribute('src'),streamSrc,'manual retry retains the healthy MSE timeline');
+ assert.equal(await audio.evaluate(a=>a.playbackRate),1.5);
+ const recoveredPosition=await audio.evaluate(a=>a.currentTime);
+ assert.ok(recoveredPosition>=retryPosition&&recoveredPosition<retryPosition+8,'retry advances from the existing offset');
  await page.getByRole('button',{name:'Pause',exact:true}).click();
  assert.deepEqual(errors,[]);console.log({mediaTimelineSeconds:previousEnd,requests:requests.length});console.log('Continuous source, speed/volume, pause/resume, basmala, whole-surah cache, outage recovery, and rolling-buffer checks passed.');
 } finally {await browser.close();await new Promise(done=>server.close(done));}

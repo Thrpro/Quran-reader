@@ -4,6 +4,7 @@ import type { AudioPoint, AudioSegment } from './recitationPlan';
 type TimedSegment = { segment: AudioSegment; start: number; end: number; bytes: number };
 export type StreamStatus = 'ready' | 'buffering' | 'retrying' | 'error' | 'finished';
 const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_AUTOMATIC_RETRIES = 4;
 /** One media timeline: no element/source switch at verse boundaries. MP3 sequence
  * mode preserves the recordings, including natural pauses, without crossfading. */
 export class RecitationStream {
@@ -22,6 +23,7 @@ export class RecitationStream {
   private wanted = false;
   private retryAt = 0;
   private failures = 0;
+  private exhausted = false;
   private timer = 0;
   private stopped = false;
   private status: StreamStatus = 'ready';
@@ -35,13 +37,15 @@ export class RecitationStream {
     this.source.addEventListener('sourceopen', () => {
       if (this.stopped || this.buffer) return;
       try { this.buffer = this.source.addSourceBuffer('audio/mpeg'); this.buffer.mode = 'sequence'; void this.pump(); }
-      catch { this.setStatus('error'); }
+      catch { this.wanted = false; this.exhausted = true; this.stopWatchdog(); this.setStatus('error'); }
     });
     media.src = this.objectUrl;
     media.addEventListener('timeupdate', this.tick);
+    media.addEventListener('play', this.mediaPlayed);
+    media.addEventListener('pause', this.mediaPaused);
     media.addEventListener('ended', this.ended);
     media.addEventListener('error', this.failed);
-    this.timer = window.setInterval(this.tick, 1000);
+    if (typeof window !== 'undefined') window.addEventListener?.('online', this.online);
   }
   static supported() { return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg'); }
   get bufferedSeconds() { return Math.max(0, (this.timed.at(-1)?.end ?? 0) - this.media.currentTime); }
@@ -52,7 +56,8 @@ export class RecitationStream {
   /** Change the future boundary without reloading the current audio timeline. */
   setEnd(end: AudioPoint) {
     if (this.stopped || !Number.isInteger(end.surah) || end.surah < 1 || end.surah > 114 || !Number.isInteger(end.ayah) || end.ayah < 1) return;
-    this.end = { ...end }; if (this.wanted && !this.completed) void this.pump();
+    this.end = { ...end }; if (this.cursor >= this.planLength) this.pending = undefined;
+    if (this.wanted && !this.completed) void this.pump();
   }
   /** Append future chapters only. Already buffered clips and position are preserved. */
   extendPlan(segments: AudioSegment[]) {
@@ -61,16 +66,53 @@ export class RecitationStream {
     this.plan.push(...segments.filter(point => !last || point.surah > last.surah || point.surah === last.surah && point.ayah > last.ayah));
   }
   private setStatus(status: StreamStatus) { if (!this.stopped && this.status !== status) { this.status = status; this.onStatus(status); } }
+  private startWatchdog() {
+    if (!this.timer) this.timer = window.setInterval(this.tick, 1000);
+  }
+  private stopWatchdog() {
+    if (this.timer) window.clearInterval(this.timer);
+    this.timer = 0;
+  }
+  private mediaPlayed = () => {
+    if (this.stopped || this.completed || this.wanted) return;
+    if (this.exhausted) { this.failures = 0; this.exhausted = false; }
+    this.wanted = true; this.retryAt = 0; this.startWatchdog(); void this.pump();
+  };
+  private mediaPaused = () => {
+    // Native/system media controls can pause the element without calling our
+    // public pause(). Ignore a queued pause event from an older play request.
+    if (!this.stopped && this.media.paused) { this.wanted = false; this.stopWatchdog(); }
+  };
   play() {
     if (this.stopped || this.completed) return;
+    // A user action starts a fresh finite recovery budget. Background polling
+    // cannot reset this budget or silently skip the recording that failed.
+    if (this.exhausted) { this.failures = 0; this.exhausted = false; }
     this.wanted = true; this.retryAt = 0;
+    this.startWatchdog();
     void this.pump();
-    void this.media.play().catch(error => { if (!this.stopped && this.wanted && error.name !== 'AbortError') this.setStatus('error'); });
+    void this.media.play().catch(error => {
+      if (!this.stopped && this.wanted && error.name !== 'AbortError') {
+        this.wanted = false; this.stopWatchdog(); this.setStatus('error');
+      }
+    });
   }
-  pause() { this.wanted = false; this.media.pause(); }
-  private finish() { if (this.completed) return; this.completed = true; this.wanted = false; this.media.pause(); this.setStatus('finished'); }
+  /** Retry a network/clip failure on the existing timeline and exact offset.
+   * A terminal decoder failure needs the caller's existing rebuild path. */
+  retryPending() {
+    if (this.stopped || this.completed || !this.buffer || this.media.error) return false;
+    this.failures = 0; this.exhausted = false; this.retryAt = 0;
+    this.setStatus('buffering'); this.play(); return true;
+  }
+  pause() { this.wanted = false; this.stopWatchdog(); this.media.pause(); }
+  private finish() { if (this.completed) return; this.completed = true; this.wanted = false; this.pending = undefined; this.stopWatchdog(); this.media.pause(); this.setStatus('finished'); }
   private ended = () => { if (this.cursor >= this.planLength) this.finish(); };
-  private failed = () => { this.wanted = false; void this.invalidateBufferedCache(); this.pending = undefined; this.setStatus('error'); };
+  private failed = () => { this.wanted = false; this.stopWatchdog(); void this.invalidateBufferedCache(); this.pending = undefined; this.setStatus('error'); };
+  private online = () => {
+    if (!this.stopped && !this.completed && this.wanted && !this.exhausted && this.status === 'retrying') {
+      this.retryAt = 0; void this.pump();
+    }
+  };
   private tick = () => {
     if (this.stopped || this.completed) return;
     const position = this.media.currentTime;
@@ -105,20 +147,31 @@ export class RecitationStream {
     const cached = Boolean(response);
     response ??= await fetch(url, {signal});
     if (!response.ok || !response.body) throw new Error('Audio download failed');
-    const reader = response.body.getReader(); const chunks: Uint8Array<ArrayBuffer>[] = []; let size = 0;
+    if (signal.aborted) { void response.body.cancel().catch(() => {}); signal.throwIfAborted(); }
+    const declaredLength = Number(response.headers.get('content-length'));
+    const expectedLength = declaredLength > 0 && Number.isSafeInteger(declaredLength) && !response.headers.get('content-encoding') ? declaredLength : 0;
+    // Known-length clips need only their final bounded array. Keeping every
+    // chunk as well would duplicate the complete recording before append.
+    const allocated = expectedLength && expectedLength <= MAX_BYTES ? new Uint8Array(expectedLength) : undefined;
+    const reader = response.body.getReader(); const chunks: Uint8Array<ArrayBuffer>[] = []; let size = 0, readDone = false;
     const cancel = () => { void reader.cancel().catch(() => {}); };
     signal.addEventListener('abort', cancel, {once:true});
     try {
       while (true) {
-        signal.throwIfAborted(); const {value,done} = await reader.read(); if (done) break;
-        size += value.byteLength; if (size > MAX_BYTES) { await reader.cancel(); throw new Error('Audio clip too large'); } chunks.push(value);
+        signal.throwIfAborted(); const {value,done} = await reader.read(); if (done) { readDone = true; break; }
+        size += value.byteLength; if (size > MAX_BYTES) { await reader.cancel(); throw new Error('Audio clip too large'); }
+        if (allocated) {
+          if (size > allocated.length) { await reader.cancel(); break; }
+          allocated.set(value, size - value.byteLength);
+        } else chunks.push(value);
       }
       signal.throwIfAborted();
-    } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
+    } finally { signal.removeEventListener('abort', cancel); if (!readDone) cancel(); reader.releaseLock(); }
     if (!size) throw new Error('Empty audio clip');
-    const result = new Uint8Array(size); let offset = 0; for(const chunk of chunks) { result.set(chunk,offset); offset += chunk.length; }
-    const declaredLength = Number(response.headers.get('content-length'));
-    const wrongLength = declaredLength > 0 && Number.isSafeInteger(declaredLength) && !response.headers.get('content-encoding') && size !== declaredLength;
+    const single = chunks.length === 1 && chunks[0].byteLength === chunks[0].buffer.byteLength ? chunks[0] : undefined;
+    const result = allocated ?? single ?? new Uint8Array(size);
+    if (!allocated && !single) { let offset = 0; for(const chunk of chunks) { result.set(chunk,offset); offset += chunk.length; } }
+    const wrongLength = expectedLength && size !== expectedLength;
     if (wrongLength || isErrorContentType(response.headers.get("content-type")) || !completeMp3(result)) {
       if (cached) {
         await this.invalidateClip(url);
@@ -155,13 +208,18 @@ export class RecitationStream {
       await this.evictPlayed();
       while (!this.stopped && !this.completed && this.wanted && this.cursor < this.planLength && this.bufferedSeconds < 60 * this.media.playbackRate) {
         await this.evictPlayed();
+        if (this.stopped || this.completed || !this.wanted || this.cursor >= this.planLength) return;
         const segment = this.plan[this.cursor];
-        this.pending ??= await this.fetchClip(segment.url);
-        if (this.stopped) return;
-        const bytes = this.pending;
+        const bytes = this.pending ?? await this.fetchClip(segment.url);
+        // A read can finish after disposal/completion. Do not retain its bytes
+        // again after dispose() has already cleared the pending clip.
+        if (this.stopped || this.completed || this.cursor >= this.planLength) return;
+        this.pending = bytes;
+        if (!this.wanted) return;
         if (this.timed.reduce((n,item)=>n+item.bytes,0) + bytes.length > MAX_BYTES && this.bufferedSeconds > 1) break;
         const start = this.timed.at(-1)?.end ?? 0;
         await this.operation(() => this.buffer!.appendBuffer(bytes));
+        if (this.stopped || this.completed) return;
         const end = this.buffer.buffered.end(this.buffer.buffered.length-1);
         if (end <= start) throw new Error('Invalid audio duration');
         this.timed.push({segment,start,end,bytes:bytes.length}); this.pending = undefined; this.cursor++;
@@ -169,16 +227,30 @@ export class RecitationStream {
       }
       if (this.cursor >= this.planLength && !this.stopped && this.source.readyState === 'open') this.source.endOfStream();
     } catch (error) {
+      if (this.stopped || this.completed) return;
       if (this.media.error && this.plan[this.cursor]) {
         await this.invalidateBufferedCache(); await this.invalidateClip(this.plan[this.cursor].url); this.pending = undefined;
       }
-      if (!this.stopped && error instanceof Error && error.message === 'Audio clip too large') { this.wanted = false; this.setStatus('error'); return; }
-      if (!this.stopped) { this.failures++; this.retryAt = Date.now() + Math.min(10000, 1000 * 2 ** Math.min(this.failures,3)); this.setStatus(this.media.error ? 'error' : 'retrying'); }
+      if (!this.stopped && !this.completed) {
+        this.failures++;
+        if (this.media.error || error instanceof Error && error.message === 'Audio clip too large' || this.failures > MAX_AUTOMATIC_RETRIES) {
+          this.wanted = false; this.exhausted = true; this.stopWatchdog(); this.setStatus('error');
+          // Buffered recitation may still contain the current verse. Let it
+          // finish naturally rather than cutting it off for a future failure.
+          return;
+        }
+        this.retryAt = Date.now() + Math.min(10000, 1000 * 2 ** Math.min(this.failures,3));
+        this.setStatus('retrying');
+      }
     } finally { this.busy = false; }
   }
   dispose() {
-    this.stopped = true; this.wanted = false; this.abort.abort(); clearInterval(this.timer);
+    if (this.stopped) return;
+    this.stopped = true; this.wanted = false; this.abort.abort(); this.stopWatchdog();
+    if (typeof window !== 'undefined') window.removeEventListener?.('online', this.online);
     this.media.removeEventListener('timeupdate', this.tick); this.media.removeEventListener('ended', this.ended); this.media.removeEventListener('error', this.failed);
+    this.media.removeEventListener('play', this.mediaPlayed); this.media.removeEventListener('pause', this.mediaPaused);
     this.media.pause(); this.media.removeAttribute('src'); this.media.load(); URL.revokeObjectURL(this.objectUrl); this.pending = undefined; this.timed = [];
+    this.plan = []; this.cachedClips.clear();
   }
 }

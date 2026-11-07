@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { BookTurnLayer } from "./bookTurnLayer";
+import { flushShapedInkForPage } from "./ShapedQuranLine";
 import { getDragPageTurn, type PageTurn } from "./pageGesture";
 import {
   enqueuePageTurn,
@@ -17,6 +18,7 @@ type Options = {
   spread: boolean;
   enabled: boolean;
   commandsEnabled: boolean;
+  prewarm?: boolean;
   canGoNext: boolean;
   canGoPrevious: boolean;
   onTurn: (direction: PageTurn) => void;
@@ -116,6 +118,10 @@ export function usePageDrag(options: Options) {
       const bottomSource = source(bottom);
       const backSource = back === null ? null : source(back);
       if (!bottomSource || (back !== null && !backSource)) return null;
+      // Optional preview painting yields to visible pages, but fold snapshots
+      // must always copy complete artwork, even on an immediate first turn.
+      flushShapedInkForPage(bottomSource);
+      if (backSource) flushShapedInkForPage(backSource);
       const bounds = current.page.getBoundingClientRect();
       const created = new BookTurnLayer(current.view, current.page.offsetWidth, current.page.offsetHeight,
         direction, current.y - bounds.top < bounds.height / 2 ? "top" : "bottom",
@@ -269,7 +275,7 @@ export function usePageDrag(options: Options) {
 
     prewarm.current = () => {
       if (warmLayer.current || busy.current || pending.current ||
-          !latest.current.enabled || reducedMotion.matches) return;
+          !latest.current.enabled || latest.current.prewarm === false || reducedMotion.matches) return;
       const direction: PageTurn = canTurn("next") ? "next" : "previous";
       if (!canTurn(direction)) return;
       const page = activeViewport.querySelector<HTMLElement>(direction === "next"
@@ -400,12 +406,12 @@ export function usePageDrag(options: Options) {
   }, [options.viewport]);
 
   useEffect(() => {
-    if (!options.enabled) return;
+    if (!options.enabled || options.prewarm === false) return;
     // Fast navigation cancels speculative rasterization before it starts.
     // Prepare a fold only after the reader has rested on the current spread.
     const timer = window.setTimeout(() => prewarm.current?.(), 600);
     return () => window.clearTimeout(timer);
-  }, [options.enabled, options.pageKey, options.layoutKey]);
+  }, [options.enabled, options.pageKey, options.layoutKey, options.prewarm]);
   return {
     turnPage(direction: PageTurn, repeated = false, source: PageTurnSource = "discrete") {
       const handler = requestTurn.current;

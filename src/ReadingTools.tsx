@@ -1,13 +1,16 @@
-import { validAudioResponse } from "./audioFormat";
+import { cachedAudioSource } from './cachedAudioSource';
+import { audioResponseBlob } from "./audioFormat";
+import { AudioCacheIndex } from "./audioCacheIndex";
 import { TimedRecitation } from "./timedRecitation";
 import { TIMED_RECORDINGS, timedAudioUrl, timingCacheUrl, hasOfflineTimings, saveOfflineTimings } from "./timedAudio";
 import { RecitationDock } from "./RecitationDock";
-import { LISTENING_PREFERENCES_KEY, LISTENING_RESUME_KEY, PLAYBACK_SPEEDS, storedListeningPreferences, storedListeningResume, type ListeningResume } from "./listeningPreferences";
+import { LISTENING_PREFERENCES_KEY, LISTENING_RESUME_KEY, PLAYBACK_SPEEDS, storedListeningPreferences, storedListeningResume } from "./listeningPreferences";
+import { resumeForSource, type ListeningResumeSource } from "./listeningResumeSource";
 import { ReciterPicker } from "./ReciterPicker";
 import { RecitationStream, type StreamStatus } from "./recitationStream";
 import { recitationPlan } from "./recitationPlan";
 import { AudioDownloadError, downloadAudio, type DownloadFailure, type DownloadProgress } from "./audioDownloads";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, Headphones, Pause, Play, Target, Trash2, X, Square, Volume2, RotateCcw, RotateCw } from "lucide-react";
 import { AYAH_RECITERS, audioUrl, ayahAudioUrl, readReciterCatalog, reciterDisplayName, reciterNameMatches, type Reciter } from "./audioCatalog";
@@ -20,6 +23,7 @@ const READING_PREFERENCES_KEY = "quran-reading-preferences-v1";
 const REMINDER_DAY_KEY = "quran-reading-reminder-day-v1";
 const AUDIO_CACHE = "quran-audio-v1";
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
+const EMPTY_CLOCK = { elapsed: 0, duration: 0, buffered: 0, min: 0, max: 0 };
 const dayKey = () => { const now = new Date(); return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`; };
 function today(goal: Goal): Goal { return goal.day === dayKey() ? goal : { ...goal, day: dayKey(), pages: [], seconds: 0 }; }
 function readGoal(): Goal {
@@ -69,7 +73,13 @@ async function readCatalogResponse(response: Response, signal: AbortSignal) {
   } finally { await reader.cancel().catch(() => {}); }
 }
 export type ListeningRequest = { id: number; surah: number; ayah: number; end: { surah: number; ayah: number }; label: string };
-export function ReadingTools({ language, surahs, currentSurah, pages, enabled, onOpenChange, onSurahChange, onAyahChange, listeningRequest, integrateTitleBar = false, controlsEnabled = enabled, onBeforeOpen, dismissRequest = 0 }: {
+export function ReadingTools({ language, surahs, currentSurah, pages, enabled, onOpenChange, onSurahChange, onAyahChange, listeningRequest, integrateTitleBar = false, controlsEnabled = enabled, onBeforeOpen, dismissRequest = 0, onPlayerSpaceChange, playerPlacement, onPlayerSideSpaceChange, playerSuspended = false, playerCompact = false, playerFullscreen = false }: {
+  onPlayerSpaceChange: (height: number) => void;
+  onPlayerSideSpaceChange: (width: number) => void;
+  playerPlacement: "bottom" | "side";
+  playerSuspended?: boolean;
+  playerCompact?: boolean;
+  playerFullscreen?: boolean;
   integrateTitleBar?: boolean;
   controlsEnabled?: boolean;
   onBeforeOpen?: () => void;
@@ -109,13 +119,17 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   const [retry, setRetry] = useState(0);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioError, setAudioError] = useState(false);
-  const [audioSource, setAudioSource] = useState("");
+  // User selection survives an unloaded decoder. Only a listener who has not
+  // configured playback yet adopts the reader's chapter when opening Listen.
+  const selectionConfigured = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [downloaded, setDownloaded] = useState<string[]>([]);
   const [downloadState, setDownloadState] = useState<"idle" | "saving" | "error">("idle");
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [downloadFailure, setDownloadFailure] = useState<DownloadFailure>("network");
   const [storageBytes, setStorageBytes] = useState(0);
+  const [downloadIndex] = useState(() => new AudioCacheIndex());
+  const downloadRefresh = useRef(0);
   const [savedTimingKey, setSavedTimingKey] = useState<string | null>(null);
   const [continuous, setContinuous] = useState(initialListening.continuous);
   const continuousRef = useRef(continuous); continuousRef.current = continuous;
@@ -130,19 +144,21 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   const continuePlayback = useRef(false);
   const audio = useRef<HTMLAudioElement | null>(null);
   const stream = useRef<RecitationStream | TimedRecitation | null>(null);
+  const releaseMedia = useRef<(() => void) | null>(null);
   const [playbackRevision, setPlaybackRevision] = useState(0);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('ready');
   const [basmala, setBasmala] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
-  const dockVisible = hasStarted && tab !== "audio";
+  const dockVisible = hasStarted;
   const [speed, setSpeed] = useState(initialListening.speed);
   const [volume, setVolume] = useState(initialListening.volume);
   const speedRef = useRef(speed); speedRef.current = speed;
   const pendingResume = useRef<{ surah: number; seconds: number } | null>(null);
   const unavailableResumeRecording = useRef(false);
   const maySaveResume = useRef(false);
+  const activeResumeSource = useRef<ListeningResumeSource | null>(null);
   const resumeWrittenAt = useRef(0);
-  const [clock, setClock] = useState({elapsed:0,duration:0,buffered:0,min:0,max:0});
+  const [clock, setClock] = useState(EMPTY_CLOCK);
   const [downloadBatch, setDownloadBatch] = useState<{ done: number; total: number; name: string } | null>(null);
   const abortDownload = useRef<AbortController | null>(null);
   const recording = reciters.find(r => r.id === reciterId)?.moshaf.find(m => m.id === recordingId);
@@ -150,21 +166,31 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   const timedRecording = playbackMode === "ayah" && !!TIMED_RECORDINGS[ayahReciterId];
   const url = timedRecording ? timedAudioUrl(ayahReciterId, surah) : playbackMode === "ayah" ? ayahAudioUrl(ayahReciter, surah, ayah) : audioUrl(recording, surah);
   const title = surahs.find(s => s.id === surah);
-  const surahUrls = useMemo(() => timedRecording ? [url] : playbackMode === "ayah"
+  const packageUrl = timedRecording ? timedAudioUrl(ayahReciterId, surah) : playbackMode === "surah" ? url : "";
+  const surahUrls = useMemo(() => timedRecording ? [packageUrl] : playbackMode === "ayah"
     ? [...new Set(recitationPlan(ayahReciter, {surah,ayah:1}, {surah,ayah:title?.versesCount ?? 1}, surahs).map(item => item.url))]
-    : url ? [url] : [], [timedRecording, playbackMode, title?.versesCount, ayahReciter, surah, url]);
+    : packageUrl ? [packageUrl] : [], [timedRecording, playbackMode, title?.versesCount, ayahReciter, surah, packageUrl, surahs]);
   const timingKey = timedRecording ? timingCacheUrl(ayahReciterId, surah) : null;
-  const surahDownloaded = surahUrls.length > 0 && surahUrls.every(item => downloaded.includes(item)) && (!timingKey || savedTimingKey === timingKey);
+  const downloadSelection = useRef({ key: '', timedRecording, ayahReciterId, surah, count: title?.versesCount, timingKey });
+  downloadSelection.current = { key: `${playbackMode}:${ayahReciterId}:${reciterId}:${recordingId}:${surah}`, timedRecording, ayahReciterId, surah, count: title?.versesCount, timingKey };
+  const downloadedSet = useMemo(() => new Set(downloaded), [downloaded]);
+  const packageAudioSaved = useMemo(() => surahUrls.length > 0 && surahUrls.every(item => downloadedSet.has(item)), [surahUrls, downloadedSet]);
+  const packageAudioPresent = useMemo(() => surahUrls.some(item => downloadedSet.has(item)), [surahUrls, downloadedSet]);
+  const surahDownloaded = packageAudioSaved && (!timingKey || savedTimingKey === timingKey);
   const selectedReciterName = reciters.find(r => r.id === reciterId)?.name ?? "";
-  const matchingReciters = !reciterQuery.trim() || reciterQuery === selectedReciterName
+  const matchingReciters = useMemo(() => !reciterQuery.trim() || reciterQuery === selectedReciterName
     ? reciters
-    : reciters.filter(r => reciterNameMatches(r.name, reciterQuery));
+    : reciters.filter(r => reciterNameMatches(r.name, reciterQuery)), [reciters, reciterQuery, selectedReciterName]);
   const selectedAyahReciterName = reciterDisplayName(ayahReciter, language);
-  const matchingAyahReciters = !ayahReciterQuery.trim() || ayahReciterQuery === selectedAyahReciterName
+  const matchingAyahReciters = useMemo(() => !ayahReciterQuery.trim() || ayahReciterQuery === selectedAyahReciterName
     ? AYAH_RECITERS
     : AYAH_RECITERS.filter(reciter =>
         reciterNameMatches(reciterDisplayName(reciter, "english"), ayahReciterQuery) ||
-        reciterNameMatches(reciterDisplayName(reciter, "arabic"), ayahReciterQuery));
+        reciterNameMatches(reciterDisplayName(reciter, "arabic"), ayahReciterQuery)), [ayahReciterQuery, selectedAyahReciterName]);
+  // Stable option arrays let the picker skip playback-clock renders entirely.
+  const primaryReciterOptions = useMemo(() => matchingAyahReciters.map(reciter => ({ id: reciter.id,
+    name: reciterDisplayName(reciter, language) })), [matchingAyahReciters, language]);
+  const additionalReciterOptions = useMemo(() => matchingReciters.map(reciter => ({ id: reciter.id, name: reciter.name })), [matchingReciters]);
 
   const latestListening = useRef({ mode: playbackMode, ayahReciterId, reciterId, recordingId, speed, volume, continuous, surah, ayah, timedRecording });
   latestListening.current = { mode: playbackMode, ayahReciterId, reciterId, recordingId, speed, volume, continuous, surah, ayah, timedRecording };
@@ -175,8 +201,8 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   function saveResume(force = false) {
     const element = audio.current;
     if (!maySaveResume.current || !element || element.ended || !force && performance.now() - resumeWrittenAt.current < 10000) return;
-    const state = latestListening.current;
-    const value: ListeningResume = { ...state, seconds: state.mode === "ayah" && !state.timedRecording ? 0 : element.currentTime };
+    const value = resumeForSource(latestListening.current, activeResumeSource.current, element.currentTime);
+    if (!value) return;
     try { localStorage.setItem(LISTENING_RESUME_KEY, JSON.stringify(value)); resumeWrittenAt.current = performance.now(); } catch { /* Optional resume. */ }
   }
   function clearResume() {
@@ -191,6 +217,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }
   function resumeLastRecitation() {
     if (!resumeOffer || !surahs.some(item => item.id === resumeOffer.surah && resumeOffer.ayah <= item.versesCount)) return;
+    selectionConfigured.current = true;
     pendingResume.current = resumeOffer.mode === "surah" || TIMED_RECORDINGS[resumeOffer.ayahReciterId]
       ? { surah: resumeOffer.surah, seconds: resumeOffer.seconds } : null;
     setPlaybackMode(resumeOffer.mode); setMoreRecitersOpen(resumeOffer.mode === "surah");
@@ -259,7 +286,6 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }, [reminderVisible]);
 
   useEffect(() => { onOpenChange(tab !== null); }, [tab, onOpenChange]);
-  useEffect(() => { if (tab === "audio" || listeningRequest) setAudioEnabled(true); }, [tab, listeningRequest]);
   useEffect(() => {
     const webview = (window as Window & { chrome?: { webview?: { postMessage: (message: unknown) => void } } }).chrome?.webview;
     webview?.postMessage({ type: "reading-session-state", active: running, language });
@@ -277,6 +303,8 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }, [surah, title?.versesCount, listeningRange?.id]);
   useEffect(() => {
     if (!listeningRequest) return;
+    selectionConfigured.current = true;
+    setAudioEnabled(true);
     setListeningRange(listeningRequest);
     setPlaybackMode("ayah");
     setSurah(listeningRequest.surah);
@@ -355,71 +383,104 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
       }).catch(() => { if (!controller.signal.aborted && !cached.length) setCatalogState("error"); });
     return () => controller.abort();
   }, [tab === "audio", language, retry, playbackMode, moreRecitersOpen]);
-  async function cachedAudioSize(cache: Cache, request: Request) {
-    const value = Number((await cache.match(request))?.headers.get("content-length") ?? 0);
-    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-  }
   async function refreshDownloads() {
+    const revision = ++downloadRefresh.current;
+    const selection = downloadSelection.current;
     const cache = await caches.open(AUDIO_CACHE);
-    const keys = await cache.keys();
-    const sizes = await Promise.all(keys.map(key => cachedAudioSize(cache, key)));
-    setDownloaded(keys.filter(key => new URL(key.url).pathname.endsWith(".mp3")).map(key => key.url)); setStorageBytes(sizes.reduce((a, b) => a + b, 0));
-    setSavedTimingKey(timedRecording && title && await hasOfflineTimings(cache, ayahReciterId, surah, title.versesCount) ? timingCacheUrl(ayahReciterId, surah) : null);
+    const [snapshot, timingsSaved] = await Promise.all([
+      downloadIndex.read(cache),
+      selection.timedRecording && selection.count ? hasOfflineTimings(cache, selection.ayahReciterId, selection.surah, selection.count) : false,
+    ]);
+    if (revision !== downloadRefresh.current || selection.key !== downloadSelection.current.key) return;
+    setDownloaded(snapshot.urls.filter(url => new URL(url).pathname.endsWith(".mp3"))); setStorageBytes(snapshot.bytes);
+    setSavedTimingKey(timingsSaved ? selection.timingKey : null);
   }
-  useEffect(() => { setSavedTimingKey(null); if (tab === "audio") void refreshDownloads().catch(() => {}); }, [tab, timedRecording, ayahReciterId, surah]);
+  useEffect(() => {
+    setSavedTimingKey(null);
+    if (tab === "audio") void refreshDownloads().catch(() => {});
+    return () => { downloadRefresh.current++; };
+  }, [tab, timedRecording, ayahReciterId, reciterId, recordingId, surah]);
   useEffect(() => () => abortDownload.current?.abort(), []);
   useEffect(() => {
     const element = audio.current; if (!element || !audioEnabled) return;
-    let disposed = false, objectUrl = '';
-    const invalidateFailedCache = () => { if (objectUrl) void caches.open(AUDIO_CACHE).then(cache => cache.delete(url)).catch(() => {}); };
+    let disposed = false, objectUrl = '', cachedMedia = false;
+    maySaveResume.current = false; activeResumeSource.current = null;
+    const invalidateFailedCache = () => { if (cachedMedia) void caches.open(AUDIO_CACHE).then(cache => cache.delete(url)).catch(() => {}); };
 
     // Restoring an additional reciter can precede its cached/network catalog.
     // Preserve the requested autoplay/resume until that recording has a URL.
-    if (!url) { element.pause(); setPlaying(false); setAudioSource(''); setHasStarted(false); return; }
+    if (!url) { element.pause(); setPlaying(false); setHasStarted(false); return; }
     const autoplay = continuePlayback.current; continuePlayback.current = false;
     replayStart.current = { surah, ayah };
     element.pause(); setPlaying(false); setAudioError(unavailableResumeRecording.current); unavailableResumeRecording.current = false;
     setStreamStatus('ready'); setBasmala(false);
-    setClock({elapsed:0,duration:0,buffered:0,min:0,max:0}); setHasStarted(autoplay); setAudioSource(url);
+    setClock({elapsed:0,duration:0,buffered:0,min:0,max:0}); setHasStarted(previous => previous || autoplay);
     element.defaultPlaybackRate = speed; element.playbackRate = speed; element.volume = volume;
+    const resumeSource: ListeningResumeSource = { mode:playbackMode, ayahReciterId, reciterId, recordingId, surah, ayah, timedRecording };
+    activeResumeSource.current = resumeSource;
+    const retireResumeSource = () => {
+      if (activeResumeSource.current !== resumeSource) return;
+      maySaveResume.current = false; activeResumeSource.current = null;
+    };
+    const ownMedia = (cleanup: () => void) => {
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true; disposed = true; retireResumeSource(); cleanup();
+        if (releaseMedia.current === release) releaseMedia.current = null;
+      };
+      releaseMedia.current = release;
+      return release;
+    };
     if (timedRecording) {
       const end = listeningRange?.end ?? (continuous ? {surah:114,ayah:6} : {surah,ayah:title?.versesCount ?? ayah});
       const player = new TimedRecitation(element, ayahReciterId, {surah,ayah}, end, surahs, () => speedRef.current,
-        item => { if (!disposed) { setSurah(item.surah); setAyah(item.ayah); setBasmala(Boolean(item.basmala)); } },
+        item => { if (!disposed) { resumeSource.surah=item.surah; resumeSource.ayah=item.ayah; setSurah(item.surah); setAyah(item.ayah); setBasmala(Boolean(item.basmala)); } },
         status => { if (!disposed) { setStreamStatus(status); if (status === 'error') setAudioError(true);
           if (status === 'ready') { setAudioError(false); applyPendingResume(); }
           if (status === 'finished') finishRange(); } });
       stream.current = player; if (autoplay) player.play();
-      return () => { disposed = true; player.dispose(); stream.current = null; };
+      return ownMedia(() => { player.dispose(); if (stream.current === player) stream.current = null; });
     }
     if (playbackMode === 'ayah' && RecitationStream.supported()) {
       const end = listeningRange?.end ?? (continuous ? {surah:114,ayah:6} : {surah,ayah:title?.versesCount ?? ayah});
       const plan = recitationPlan(ayahReciter, {surah,ayah}, end, surahs);
       const player = new RecitationStream(element, plan, item => {
         if (disposed) return;
+        resumeSource.surah=item.surah; resumeSource.ayah=item.ayah;
         setSurah(item.surah); setAyah(item.ayah); setBasmala(Boolean(item.basmala));
       }, status => { if (!disposed) { setStreamStatus(status); if (status === 'error') setAudioError(true);
         if (status === 'ready') setAudioError(false); if (status === 'finished') finishRange(); } });
       stream.current = player;
       if (autoplay) player.play();
-      return () => { disposed = true; player.dispose(); stream.current = null; };
+      return ownMedia(() => { player.dispose(); if (stream.current === player) stream.current = null; });
     }
     if (playbackMode === 'ayah') { setAudioError(true); setStreamStatus('error'); return; }
+    const cacheRead = new AbortController();
     element.addEventListener('error', invalidateFailedCache);
     // Whole-surah recordings already contain their own opening; do not prepend it.
     void (async () => {
       let response: Response | undefined;
       try { response = await (await caches.open(AUDIO_CACHE)).match(url); } catch { /* Streaming also works when cache storage is unavailable. */ }
-      if (response && !await validAudioResponse(response.clone())) {
-        await (await caches.open(AUDIO_CACHE)).delete(url); response = undefined;
+      let cachedSource: string | null | undefined, blob: Blob | undefined;
+      try {
+        cachedSource = response ? await cachedAudioSource(url, cacheRead.signal) : undefined;
+        blob = response && cachedSource === undefined ? await audioResponseBlob(response, cacheRead.signal) : undefined;
+      } finally {
+        // Stop during worker activation/validation must also release the
+        // original unused cache response, including on an aborted await.
+        if (response?.body && !response.bodyUsed) void response.body.cancel().catch(()=>{});
       }
-      const source = response ? URL.createObjectURL(await response.blob()) : url;
-      if (response) objectUrl = source;
+      if (response && !blob && !cachedSource) await (await caches.open(AUDIO_CACHE)).delete(url);
+      if (disposed) return;
+      const source = cachedSource || (blob ? URL.createObjectURL(blob) : url);
+      cachedMedia = Boolean(cachedSource || blob);
+      if (blob) objectUrl = source;
       if (disposed) { if (objectUrl) URL.revokeObjectURL(objectUrl); return; }
       element.src = source; element.defaultPlaybackRate = speedRef.current; element.playbackRate = speedRef.current;
       if (autoplay) void element.play().catch(() => { if (!disposed) setAudioError(true); });
     })().catch(() => { if (!disposed) setAudioError(true); });
-    return () => { disposed = true; element.removeEventListener("error", invalidateFailedCache); element.pause(); element.removeAttribute('src'); element.load(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    return ownMedia(() => { cacheRead.abort(); element.removeEventListener("error", invalidateFailedCache); element.pause(); element.removeAttribute('src'); element.load(); if (objectUrl) URL.revokeObjectURL(objectUrl); });
     // The displayed ayah advances within the stream. Only explicit selection or
     // playback configuration changes rebuild its timeline.
   }, [audioEnabled, playbackRevision, playbackMode, playbackMode === 'ayah' ? ayahReciterId : 0, listeningRange?.id, playbackMode === 'surah' ? url : '']);
@@ -445,13 +506,38 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }
   function togglePlayback() {
     const element = audio.current; if (!element) return;
+    selectionConfigured.current = true;
+    // Settings and an explicit Stop own no media source. Create the selected
+    // engine only after Play, preserving downloads/options without a decoder.
+    if (!audioEnabled || !stream.current && !element.getAttribute('src')) {
+      continuePlayback.current = true; setAudioEnabled(true); setHasStarted(true); setAudioError(false);
+      setPlaybackRevision(n => n + 1); return;
+    }
     if (!element.paused) { stream.current ? stream.current.pause() : element.pause(); return; }
     if (element.ended || streamStatus === 'finished') { continuePlayback.current = true; if (listeningRange) { setSurah(listeningRange.surah); setAyah(listeningRange.ayah); } else setAyah(1); setPlaybackRevision(n=>n+1); return; }
     setHasStarted(true);
     setAudioError(false);
     if (stream.current) stream.current.play(); else void element.play().catch(() => setAudioError(true));
   }
-  function stopPlayback() { clearResume(); pendingResume.current = null; stream.current?.pause(); audio.current?.pause(); if (listeningRange) { setSurah(listeningRange.surah); setAyah(listeningRange.ayah); } else setAyah(1); setHasStarted(false); continuePlayback.current = false; setPlaybackRevision(n=>n+1); }
+  function retryRecitation() {
+    // Network/clip retries keep the same MSE timeline, pending verse and exact
+    // playback offset. Only a decoder failure needs the existing rebuild path.
+    if (stream.current instanceof RecitationStream && stream.current.retryPending()) { setAudioError(false); return; }
+    if (timedRecording || playbackMode === "surah") pendingResume.current = {surah,seconds:audio.current?.currentTime ?? 0};
+    continuePlayback.current = true; setAudioEnabled(true); setPlaybackRevision(n => n + 1);
+  }
+  function stopPlayback() {
+    clearResume(); pendingResume.current = null; continuePlayback.current = false;
+    // Dispose synchronously so late callbacks cannot refill the stopped
+    // timeline before React runs the audio effect's idempotent cleanup.
+    releaseMedia.current?.(); stream.current?.dispose(); stream.current = null;
+    const element = audio.current;
+    if (element) { element.pause(); element.removeAttribute('src'); element.load(); }
+    activeResumeSource.current = null;
+    if (listeningRange) { setSurah(listeningRange.surah); setAyah(listeningRange.ayah); } else setAyah(1);
+    setAudioEnabled(false); setPlaying(false); setHasStarted(false);
+    setStreamStatus('ready'); setAudioError(false); setBasmala(false); setClock(EMPTY_CLOCK);
+  }
   function seek(seconds: number) {
     const element = audio.current; if (!element || !clock.max) return;
     element.currentTime = Math.max(clock.min, Math.min(clock.max - .05, seconds)); updateClock();
@@ -466,6 +552,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   }
   function applyRange() {
     if (!title || rangeStart < 1 || rangeEnd < rangeStart || rangeEnd > title.versesCount) return;
+    selectionConfigured.current = true;
     continuePlayback.current = playing;
     setAyah(rangeStart);
     setListeningRange({ id: Date.now(), surah, ayah: rangeStart, end: { surah, ayah: rangeEnd }, label: t('Selected ayah range', 'نطاق الآيات المختار') });
@@ -486,14 +573,13 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
     try {
       setDownloadProgress(null);
       const cache = await caches.open(AUDIO_CACHE);
-      const keys = await cache.keys();
-      let used = 0;
-      for (const key of keys) used += await cachedAudioSize(cache, key);
       if (timedRecording && title) {
         await saveOfflineTimings(cache, ayahReciterId, surah, title.versesCount, controller.signal);
-        used = 0;
-        for (const key of await cache.keys()) used += await cachedAudioSize(cache, key);
+        if (timingKey) downloadIndex.forget(timingKey);
       }
+      // Revalidate all sizes once before enforcing the quota. Ordinary menu
+      // refreshes reuse metadata; no audio body is materialized for listing.
+      let used = (await downloadIndex.read(cache, true)).bytes;
       const targets = [...surahUrls];
       const name = (ar ? title?.nameArabic : title?.nameSimple) ?? String(surah);
       let completed = 0, bytes = 0;
@@ -502,19 +588,19 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
         if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
         const cached = await cache.match(target);
         if (!cached) {
-          let fileBytes = 0;
+          let fileBytes = 0, totalBytes = 0;
           await downloadAudio(target, cache, {
             usedBytes: used, maxBytes: MAX_AUDIO_BYTES, signal: controller.signal,
-            onProgress: progress => { fileBytes = progress.received; setDownloadProgress({ received: bytes + progress.received, total: 0,
+            onProgress: progress => { fileBytes = progress.received; totalBytes = progress.total; setDownloadProgress({ received: bytes + progress.received, total: 0,
               percent: Math.floor((completed + progress.percent / 100) / targets.length * 100) }); },
           });
+          downloadIndex.remember(target, totalBytes);
           used += fileBytes; bytes += fileBytes;
-        }
+        } else await cached.body?.cancel().catch(() => {});
         completed++;
         setDownloadBatch({ done: completed, total: targets.length, name });
         setDownloadProgress({ received: bytes, total: bytes, percent: Math.floor(completed / targets.length * 100) });
       }
-      await refreshDownloads();
       setDownloadState("idle");
     } catch (error) {
       setDownloadFailure(error instanceof AudioDownloadError ? error.reason
@@ -523,10 +609,11 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
     }
     finally { abortDownload.current = null; await refreshDownloads().catch(() => {}); }
   }
-  function selectAdditionalReciter(id: number, selectedRecording: number) {
+  const selectAdditionalReciter = useCallback((id: number, selectedRecording: number) => {
     const reciter = reciters.find(item => item.id === id);
     const choice = reciter?.moshaf.find(item => item.id === selectedRecording);
     if (!reciter || !choice) return;
+    selectionConfigured.current = true;
     continuePlayback.current = playing; pendingResume.current = null; setListeningRange(null);
     setReciterId(id); setRecordingId(choice.id); setReciterQuery(reciter.name);
     // A catalog entry only inherits highlighting when both provider identity
@@ -536,7 +623,17 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
       const primary = AYAH_RECITERS.find(item => item.id === Number(matched[0]))!;
       setPlaybackMode("ayah"); setAyahReciterId(primary.id); setAyahReciterQuery(reciterDisplayName(primary, language));
     } else { setPlaybackMode("surah"); setAyahReciterQuery(""); }
-  }
+  }, [reciters, playing, language]);
+  const choosePrimaryReciter = useCallback((id: number) => {
+    selectionConfigured.current = true;
+    continuePlayback.current = playing; pendingResume.current = null; setListeningRange(null);
+    setPlaybackMode("ayah"); setAyahReciterId(id);
+    setAyahReciterQuery(reciterDisplayName(AYAH_RECITERS.find(reciter => reciter.id === id)!, language));
+  }, [playing, language]);
+  const chooseAdditionalReciter = useCallback((id: number) => {
+    const reciter = reciters.find(item => item.id === id);
+    if (reciter) selectAdditionalReciter(id, reciter.moshaf[0].id);
+  }, [reciters, selectAdditionalReciter]);
   const progress = goal.mode === "pages" ? goal.pages.length : Math.floor(goal.seconds / 60);
   const sessionTime = goal.mode === "minutes"
     ? `${formatDuration(goal.seconds)} / ${formatDuration(goal.target * 60)}`
@@ -546,11 +643,19 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   function closeTab() {
     setTab(null);
     const target = returnFocus.current;
-    if (target?.isConnected) target.focus({ preventScroll: true });
-    else document.querySelector<HTMLButtonElement>('#title-listen-host button, .readingToolsDock button[aria-label="Listen"], .readingToolsDock button[aria-label="استماع"]')?.focus({ preventScroll: true });
+    // The preserved player is still inert in this event's render. Restore
+    // focus after React reveals it, or use its compact toolbar replacement.
+    requestAnimationFrame(() => {
+      const visible = (element: HTMLElement | null): element is HTMLElement => !!element?.isConnected && !element.closest('[inert]') && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden';
+      if (visible(target)) target.focus({ preventScroll: true });
+      else Array.from(document.querySelectorAll<HTMLButtonElement>('.sidePlayerCompact button[aria-controls], #title-listen-host > button, .readingToolsDock button[aria-label="Listen"], .readingToolsDock button[aria-label="استماع"]')).find(visible)?.focus({ preventScroll: true });
+    });
   }
   function openTab(next: "audio" | "goal") { returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; onBeforeOpen?.(); setTab(value => value === next ? null : next); }
-  const listenButton = <button title={t("Listen", "استماع")} aria-label={t("Listen", "استماع")} aria-expanded={tab === "audio"} onClick={() => { if (!audioSource) setSurah(currentSurah); openTab("audio"); }}><Headphones size={17} aria-hidden="true" /><span>{t("Listen", "استماع")}</span></button>;
+  const listenButton = <button title={t("Listen", "استماع")} aria-label={t("Listen", "استماع")} aria-expanded={tab === "audio"} onClick={() => {
+    if (!selectionConfigured.current) { setSurah(currentSurah); setAyah(1); }
+    openTab("audio");
+  }}><Headphones size={17} aria-hidden="true" /><span>{t("Listen", "استماع")}</span></button>;
   const dock = controlsEnabled ? <div className="readingToolsDock" dir={ar ? "rtl" : "ltr"}>
     <button className={`sessionButton ${running ? "sessionActive" : ""}`} aria-expanded={tab === "goal"}
       aria-label={t("Daily reading", "الورد اليومي")}
@@ -563,13 +668,17 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
   return <>
     {dock ? createPortal(dock, controlsHost ?? document.body) : null}
     {titleHost && controlsEnabled ? createPortal(listenButton, titleHost) : null}
-    <audio ref={audio} data-active="true" preload="auto" className="hiddenAudio" controlsList="nodownload"
+    <audio ref={audio} data-active="true" preload={audioEnabled ? "auto" : "none"} className="hiddenAudio" controlsList="nodownload"
       onPlay={() => { maySaveResume.current = true; setResumeOffer(null); setPlaying(true); setHasStarted(true); }} onPause={() => { saveResume(true); setPlaying(false); }}
       onLoadedMetadata={() => { if (!(stream.current instanceof TimedRecitation)) applyPendingResume(); updateClock(); }}
       onTimeUpdate={updateClock} onProgress={updateClock} onDurationChange={updateClock}
       onRateChange={() => { if (audio.current && audio.current.playbackRate !== speedRef.current) audio.current.playbackRate = speedRef.current; }}
       onError={() => { if (!stream.current) setAudioError(true); }} onEnded={finishRecording} />
     {dockVisible ? <RecitationDock arabic={ar} playing={playing} title={(ar ? title?.nameArabic : title?.nameSimple) ?? ""}
+      onSpaceChange={onPlayerSpaceChange}
+      placement={playerPlacement} onSideSpaceChange={onPlayerSideSpaceChange}
+      suspended={playerSuspended || tab !== null} compactOnly={playerCompact}
+      compactHostId={playerFullscreen ? "fullscreen-listen-host" : integrateTitleBar ? "title-listen-host" : undefined}
       subtitle={playbackMode === "ayah" ? `${t("Ayah", "الآية")} ${ayah}` : selectedReciterName}
       elapsed={clock.elapsed} duration={clock.duration} minimum={clock.min} maximum={clock.max}
       onToggle={togglePlayback} onSeek={seek} onSettings={() => openTab("audio")} onStop={stopPlayback} /> : null}
@@ -601,8 +710,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
         <ReciterPicker id="ayah-reciter" label={t("Reciter", "القارئ")}
           prompt={t("Search or choose a reciter", "ابحث عن قارئ أو اختره")} empty={t("No matching reciter", "لا يوجد قارئ مطابق")}
           query={ayahReciterQuery} onQuery={setAyahReciterQuery} selected={playbackMode === "ayah" ? ayahReciterId : -1}
-          options={matchingAyahReciters.map(reciter => ({ id: reciter.id, name: reciterDisplayName(reciter, language) }))}
-          onSelect={id => { continuePlayback.current = playing; pendingResume.current = null; setListeningRange(null); setPlaybackMode("ayah"); setAyahReciterId(id); setAyahReciterQuery(reciterDisplayName(AYAH_RECITERS.find(r => r.id === id)!, language)); }}
+          options={primaryReciterOptions} onSelect={choosePrimaryReciter}
         />
         <details className="moreReciters" open={moreRecitersOpen} onToggle={event => setMoreRecitersOpen(event.currentTarget.open)}>
           <summary>{t("More reciters", "المزيد من القرّاء")}</summary>
@@ -612,14 +720,13 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
           <ReciterPicker id="reciter" label={t("Additional reciter", "قارئ إضافي")}
           prompt={t("Search or choose a reciter", "ابحث عن قارئ أو اختره")} empty={t("No matching reciter", "لا يوجد قارئ مطابق")}
           query={reciterQuery} onQuery={setReciterQuery} selected={reciterId}
-          options={matchingReciters.map(reciter => ({ id: reciter.id, name: reciter.name }))}
-          onSelect={id => { const reciter = reciters.find(r => r.id === id); if (reciter) selectAdditionalReciter(id, reciter.moshaf[0].id); }}
+          options={additionalReciterOptions} onSelect={chooseAdditionalReciter}
         />
         {(reciters.find(r => r.id === reciterId)?.moshaf.length ?? 0) > 1 ? <label>{t("Recording", "التلاوة")}<select aria-label={t("Recording", "التلاوة")} value={recordingId} onChange={e => selectAdditionalReciter(reciterId, Number(e.target.value))}>{reciters.find(r => r.id === reciterId)?.moshaf.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label> : null}
           {playbackMode === "surah" ? <p className="activeAdditionalReciter" role="status">{t("Selected", "القارئ المختار")}: {selectedReciterName} · {t("Without ayah highlighting", "دون تمييز الآيات")}</p> : null}
         </details>
-        <label>{t("Surah", "السورة")}<select aria-label={t("Surah", "السورة")} value={surah} onChange={e => { setListeningRange(null); const id = Number(e.target.value); setSurah(id); setAyah(1); setPlaybackRevision(n=>n+1); onSurahChange(id); }}>{surahs.map(s => <option key={s.id} value={s.id} disabled={playbackMode === "surah" && !audioUrl(recording, s.id)}>{ar ? s.nameArabic : s.nameSimple}</option>)}</select></label>
-        {playbackMode === "ayah" ? <label>{t("Ayah", "الآية")}<select aria-label={t("Ayah", "الآية")} value={ayah} onChange={e => { setListeningRange(null); setAyah(Number(e.target.value)); setPlaybackRevision(n=>n+1); }}>{Array.from({ length: title?.versesCount ?? 1 }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select></label> : null}
+        <label>{t("Surah", "السورة")}<select aria-label={t("Surah", "السورة")} value={surah} onChange={e => { selectionConfigured.current = true; continuePlayback.current = playing; pendingResume.current = null; setListeningRange(null); const id = Number(e.target.value); setSurah(id); setAyah(1); setPlaybackRevision(n=>n+1); onSurahChange(id); }}>{surahs.map(s => <option key={s.id} value={s.id} disabled={playbackMode === "surah" && !audioUrl(recording, s.id)}>{ar ? s.nameArabic : s.nameSimple}</option>)}</select></label>
+        {playbackMode === "ayah" ? <label>{t("Ayah", "الآية")}<select aria-label={t("Ayah", "الآية")} value={ayah} onChange={e => { selectionConfigured.current = true; continuePlayback.current = playing; pendingResume.current = null; setListeningRange(null); setAyah(Number(e.target.value)); setPlaybackRevision(n=>n+1); }}>{Array.from({ length: title?.versesCount ?? 1 }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}</option>)}</select></label> : null}
         {playbackMode === "ayah" ? <details className="listeningRangeEditor"><summary>{t("Choose an ayah range", "اختيار نطاق الآيات")}</summary>
           <div className="listeningRangeFields">
             <label>{t("From ayah", "من الآية")}<input aria-label={t("From ayah", "من الآية")} type="number" min="1" max={title?.versesCount ?? 1} value={rangeStart} onChange={e => setRangeStart(Number(e.target.value))} /></label>
@@ -637,13 +744,13 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
             <button onClick={() => seek(clock.elapsed+10)} aria-label={t('Forward 10 seconds','تقديم ١٠ ثوانٍ')}>10<RotateCw size={18}/></button>
             <button onClick={stopPlayback} title={t('Stop and reset','إنهاء وإعادة ضبط')} aria-label={t('Stop recitation','إنهاء التلاوة')}><Square size={18}/></button>
           </div>
-          <input className="recitationSeek" aria-label={t('Playback position','موضع التشغيل')} type="range" min={clock.min} max={Math.max(clock.min+.1,clock.max)} step="0.1" value={Math.max(clock.min,Math.min(clock.max,clock.elapsed))} disabled={!clock.max} onChange={e=>seek(Number(e.target.value))}/>
+          <input className="recitationSeek" aria-label={t('Playback position','موضع التشغيل')} dir={ar ? 'rtl' : 'ltr'} type="range" min={clock.min} max={Math.max(clock.min+.1,clock.max)} step="1" value={Math.max(clock.min,Math.min(clock.max,clock.elapsed))} disabled={!clock.max} onChange={e=>seek(Number(e.target.value))}/>
           <div className="recitationTimes"><span dir="ltr">{formatDuration(clock.elapsed)} / {clock.duration ? formatDuration(clock.duration) : '—'}</span><span>{clock.duration ? t('Remaining ','المتبقي ')+formatDuration((clock.max-clock.elapsed)/speed) : playbackMode==='ayah' ? t('Buffered ','جاهز للتشغيل ')+formatDuration(clock.buffered/speed) : '—'}</span></div>
           <div className="recitationPreferences"><label>{t('Speed','السرعة')}<select aria-label={t('Playback speed','سرعة التشغيل')} value={speed} onChange={e=>changeSpeed(Number(e.target.value))}>{PLAYBACK_SPEEDS.map(n=><option key={n} value={n}>{n}×</option>)}</select></label>
           <label><Volume2 size={17}/>{t('Volume','الصوت')}<input aria-label={t('Volume','الصوت')} type="range" min="0" max="1" step="0.05" value={volume} onChange={e=>{const value=Number(e.target.value);setVolume(value);if(audio.current)audio.current.volume=value;}}/></label></div>
           {streamStatus==='buffering'||streamStatus==='retrying'?<p role="status">{streamStatus==='retrying'?t('Connection interrupted. Retrying this ayah…','انقطع الاتصال. جارٍ إعادة تحميل الآية…'):t('Preparing audio…','جارٍ تجهيز التلاوة…')}</p>:null}
         </div>
-        {audioError ? <div role="alert"><button onClick={()=>{if (timedRecording || playbackMode === "surah") pendingResume.current = {surah,seconds:audio.current?.currentTime ?? 0};continuePlayback.current=true;setPlaybackRevision(n=>n+1);}}>{t("Retry recitation", "إعادة تشغيل التلاوة")}</button><p>{t("Unable to play. Check your connection or choose another recording.", "تعذر التشغيل. تحقق من الاتصال أو اختر تلاوة أخرى.")}</p></div> : null}
+        {audioError ? <div role="alert"><button onClick={retryRecitation}>{t("Retry recitation", "إعادة تشغيل التلاوة")}</button><p>{t("Unable to play. Check your connection or choose another recording.", "تعذر التشغيل. تحقق من الاتصال أو اختر تلاوة أخرى.")}</p></div> : null}
         <label className="settingToggle"><span>{t("Continue to next surah", "متابعة السورة التالية")}{listeningRange ? <small>{t("Clear the selected ayah range to continue beyond it.", "ألغِ نطاق الآيات المختار للمتابعة بعده.")}</small> : null}</span><input type="checkbox" disabled={!!listeningRange} checked={continuous} onChange={e => setContinuous(e.target.checked)} /></label>
         {downloadState === "saving" ? <div className="audioDownloadProgress">
           <progress max={100} value={downloadProgress?.percent} aria-label={t("Download progress", "تقدم التنزيل")} />
@@ -656,7 +763,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
         </details>
         <div className="goalPageActions"><button disabled={!surahUrls.length || surahDownloaded || downloadState === "saving"} onClick={() => void saveAudio()}><Download size={16} />{surahDownloaded ? t("Surah saved offline", "السورة محفوظة دون اتصال") : downloadState === "saving" ? t("Downloading...", "جارٍ التنزيل...") : t("Download surah", "تنزيل السورة")}</button>
           {downloadState === "saving" ? <button onClick={() => abortDownload.current?.abort()}>{t("Cancel", "إلغاء")}</button> : null}
-          {surahUrls.some(item => downloaded.includes(item)) ? <button disabled={downloadState === "saving"} title={t("Remove download", "حذف التنزيل")} onClick={() => void caches.open(AUDIO_CACHE).then(cache => Promise.all([...surahUrls, ...(timingKey ? [timingKey] : [])].map(item => cache.delete(item)))).then(refreshDownloads).catch(() => setDownloadState("error"))}><Trash2 size={16} /></button> : null}</div>
+          {packageAudioPresent ? <button disabled={downloadState === "saving"} title={t("Remove download", "حذف التنزيل")} onClick={() => void caches.open(AUDIO_CACHE).then(cache => Promise.all([...surahUrls, ...(timingKey ? [timingKey] : [])].map(item => { downloadIndex.forget(item); return cache.delete(item); }))).then(refreshDownloads).catch(() => setDownloadState("error"))}><Trash2 size={16} /></button> : null}</div>
         {downloadState === "error" ? <p role="alert">{downloadFailure === "storage"
           ? t("Not enough storage. Remove saved recitations and try again (200 MB limit).", "المساحة غير كافية. احذف بعض التلاوات المحفوظة ثم حاول مجددًا (الحد ٢٠٠ ميجابايت).")
           : downloadFailure === "format"
@@ -669,7 +776,7 @@ export function ReadingTools({ language, surahs, currentSurah, pages, enabled, o
 
 
         <p className="toolNote">{t("Offline audio", "التلاوات المحفوظة")}: {(storageBytes / 1048576).toFixed(1)} / 200 MB</p>
-        {downloaded.length ? <button disabled={downloadState === "saving"} onClick={() => void caches.delete(AUDIO_CACHE).then(refreshDownloads).catch(() => setDownloadState("error"))}><Trash2 size={16} />{t("Remove all downloaded audio", "حذف جميع التلاوات المحفوظة")}</button> : null}
+        {downloaded.length ? <button disabled={downloadState === "saving"} onClick={() => { downloadIndex.forget(); void caches.delete(AUDIO_CACHE).then(refreshDownloads).catch(() => setDownloadState("error")); }}><Trash2 size={16} />{t("Remove all downloaded audio", "حذف جميع التلاوات المحفوظة")}</button> : null}
         <footer className="tafsirAttribution">{timedRecording ? "MP3Quran.net · Ayah timings" : playbackMode === "ayah" ? (ayahReciter.provider === "everyayah" ? "EveryAyah.com" : "Quran Foundation") : "MP3Quran.net"}</footer>
       </section>}
     </aside> : null}

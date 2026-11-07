@@ -20,22 +20,72 @@ export function mp3Signature(bytes: Uint8Array): "valid" | "invalid" | "pending"
     (c & 240) !== 0 && (c & 240) !== 240 && (c & 12) !== 12 ? "valid" : "invalid";
 }
 
+export class AudioPrefixValidator {
+  private bytes = new Uint8Array(16);
+  private length = 0;
+  signature: ReturnType<typeof mp3Signature> = 'pending';
+  write(chunk: Uint8Array) {
+    if (this.signature !== 'pending') return this.signature;
+    const length = Math.min(MAX_AUDIO_PREFIX, this.length + chunk.length);
+    if (length > this.bytes.length) {
+      const next = new Uint8Array(Math.min(MAX_AUDIO_PREFIX, Math.max(length, this.bytes.length * 2)));
+      next.set(this.bytes.subarray(0, this.length)); this.bytes = next;
+    }
+    this.bytes.set(chunk.subarray(0, length - this.length), this.length); this.length = length;
+    this.signature = mp3Signature(this.bytes.subarray(0, length));
+    if (this.signature === 'pending' && length === MAX_AUDIO_PREFIX) this.signature = 'invalid';
+    if (this.signature !== 'pending') this.bytes = new Uint8Array(0);
+    return this.signature;
+  }
+}
+
 /** Inspect at most one bounded prefix; never duplicate a full surah in memory. */
 export async function validAudioResponse(response: Response) {
   if (isErrorContentType(response.headers.get("content-type")) || !response.body) return false;
   const reader = response.body.getReader();
-  let prefix = new Uint8Array(0);
+  const prefix = new AudioPrefixValidator();
   try {
-    while (prefix.length < MAX_AUDIO_PREFIX) {
+    while (true) {
       const { value, done } = await reader.read();
       if (done) return false;
-      const next = new Uint8Array(Math.min(MAX_AUDIO_PREFIX, prefix.length + value.length));
-      next.set(prefix); next.set(value.subarray(0, next.length - prefix.length), prefix.length); prefix = next;
-      const signature = mp3Signature(prefix);
+      const signature = prefix.write(value);
       if (signature !== "pending") return signature === "valid";
     }
-    return false;
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
+
+class InvalidAudioResponse extends Error {}
+
+/** Consume a cached recording once. Validate its bounded prefix and declared
+ * length while the browser builds the playback Blob, without a tee/clone or a
+ * second full recording in a JavaScript ArrayBuffer. */
+export async function audioResponseBlob(response: Response, signal?: AbortSignal): Promise<Blob | undefined> {
+  const body = response.body;
+  if (!body) return undefined;
+  if (signal?.aborted) { void body.cancel().catch(() => {}); signal.throwIfAborted(); }
+  if (!response.ok || isErrorContentType(response.headers.get('content-type'))) {
+    void body.cancel().catch(() => {}); return undefined;
+  }
+  const declaredLength = Number(response.headers.get('content-length'));
+  const expectedLength = declaredLength > 0 && Number.isSafeInteger(declaredLength) && !response.headers.get('content-encoding') ? declaredLength : 0;
+  const prefix = new AudioPrefixValidator(); let received = 0;
+  const validated = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, sink) {
+      received += chunk.byteLength;
+      if (expectedLength && received > expectedLength || prefix.write(chunk) === 'invalid') throw new InvalidAudioResponse();
+      sink.enqueue(chunk);
+    },
+    flush() {
+      if (prefix.signature !== 'valid' || expectedLength && received !== expectedLength) throw new InvalidAudioResponse();
+    },
+  }), signal ? { signal } : undefined);
+  try {
+    const blob = await new Response(validated, { headers: response.headers }).blob();
+    signal?.throwIfAborted(); return blob;
+  } catch (error) {
+    if (error instanceof InvalidAudioResponse) return undefined;
+    throw error;
+  }
 }
 
 /** Ayah clips are small enough to inspect completely before playback. A valid

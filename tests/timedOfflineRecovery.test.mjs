@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { TIMED_RECORDINGS, hasOfflineTimings, loadTimings, saveOfflineTimings, timingCacheUrl } from '../src/timedAudio.ts';
+import { TIMED_RECORDINGS, hasOfflineTimings, loadTimings, saveOfflineTimings, timingCacheUrl, timedAudioUrl } from '../src/timedAudio.ts';
 import { TimedRecitation } from '../src/timedRecitation.ts';
 
 const raw = [
@@ -134,4 +135,46 @@ test('changing chapter continuation preserves the active ayah and includes the f
   assert.equal(statuses.includes('finished'),false,'Chapter tail is preserved');
   media.currentTime=10.8; media.dispatchEvent(new Event('ended'));
   assert.equal(statuses.at(-1),'finished'); assert.equal(player.chapter,112);
+});
+
+test('cached follow-along creates one byte-identical Blob without cloning the recording response', async context => {
+  const {cache}=storage(context), media=new Media(), blobs=[], revoked=[];
+  const clip=readFileSync(new URL('./fixtures/yasser-112001.mp3',import.meta.url));
+  const response=new Response(clip,{headers:{'content-type':'audio/mpeg','content-length':String(clip.length)}});
+  context.mock.method(response,'clone',()=>{throw Error('Cached recording must have one consumer');});
+  context.mock.method(response,'arrayBuffer',()=>{throw Error('Do not materialize a second complete recording');});
+  context.mock.method(cache,'match',async key=>key===timedAudioUrl(1001,112)?response:undefined);
+  context.mock.method(URL,'createObjectURL',blob=>{blobs.push(blob);return 'blob:cached-recording';});
+  context.mock.method(URL,'revokeObjectURL',url=>revoked.push(url));
+  const player=new TimedRecitation(media,1001,{surah:112,ayah:2},{surah:112,ayah:4},[{id:112,versesCount:4}],()=>1.5,()=>{},()=>{});
+  context.after(()=>player.dispose()); player.play(); await flush();
+  assert.equal(media.src,'blob:cached-recording'); assert.equal(blobs.length,1);
+  assert.deepEqual(new Uint8Array(await blobs[0].arrayBuffer()),new Uint8Array(clip));
+  assert.equal(media.currentTime,2.31);assert.equal(media.playbackRate,1.5);assert.equal(media.paused,false);
+  player.dispose(); player.dispose(); assert.deepEqual(revoked,['blob:cached-recording']);
+});
+
+test('disposing follow-along cancels a pending cached recording before it becomes a source', async context => {
+  const {cache}=storage(context),media=new Media(); let cancelled=false,created=0;
+  const response=new Response(new ReadableStream({
+    start(sink){sink.enqueue(new Uint8Array([255,251,144,0,0,0,0,0,0,0]));},
+    cancel(){cancelled=true;},
+  }));
+  context.mock.method(cache,'match',async key=>key===timedAudioUrl(1001,112)?response:undefined);
+  context.mock.method(URL,'createObjectURL',()=>{created++;return 'blob:late-recording';});
+  const player=new TimedRecitation(media,1001,{surah:112,ayah:1},{surah:112,ayah:4},[{id:112,versesCount:4}],()=>1.5,()=>{},()=>{});
+  context.after(()=>player.dispose()); await flush(); assert.equal(response.bodyUsed,true);
+  player.dispose(); await flush();
+  assert.equal(cancelled,true);assert.equal(created,0);assert.equal(media.src,'');
+});
+
+test('a cached recording with the wrong byte length is evicted before follow-along falls back to the same URL', async context => {
+  const {cache}=storage(context),media=new Media(),deleted=[],url=timedAudioUrl(1001,112);
+  const clip=readFileSync(new URL('./fixtures/yasser-112001.mp3',import.meta.url));
+  context.mock.method(cache,'match',async key=>key===url?new Response(clip,{headers:{'content-length':String(clip.length+1)}}):undefined);
+  context.mock.method(cache,'delete',async key=>{deleted.push(key);return true;});
+  context.mock.method(URL,'createObjectURL',()=>{throw Error('Invalid cached data must not become a playback Blob');});
+  const player=new TimedRecitation(media,1001,{surah:112,ayah:2},{surah:112,ayah:4},[{id:112,versesCount:4}],()=>1.5,()=>{},()=>{});
+  context.after(()=>player.dispose());player.play();await flush();
+  assert.deepEqual(deleted,[url]);assert.equal(media.src,url);assert.equal(media.currentTime,2.31);assert.equal(media.playbackRate,1.5);assert.equal(media.paused,false);
 });

@@ -42,6 +42,10 @@ struct Host {
     hwnd: HWND,
     config: Config,
     controller: RefCell<Option<ICoreWebView2Controller>>,
+    memory_view: RefCell<Option<ICoreWebView2_19>>,
+    memory_target_minimized: Cell<Option<bool>>,
+    #[cfg(feature = "qa")]
+    last_minimized: Cell<Option<bool>>,
     last_bounds: Cell<RECT>,
     last_maximized: Cell<Option<bool>>,
     commands: RefCell<VecDeque<Message>>,
@@ -203,6 +207,10 @@ pub fn run() -> Result<()> {
         hwnd,
         config,
         controller: RefCell::new(None),
+        memory_view: RefCell::new(None),
+        memory_target_minimized: Cell::new(None),
+        #[cfg(feature = "qa")]
+        last_minimized: Cell::new(None),
         last_bounds: Cell::new(RECT::default()),
         last_maximized: Cell::new(None),
         commands: RefCell::new(VecDeque::new()),
@@ -292,18 +300,30 @@ impl Host {
         }
     }
     fn resize(&self) {
+        let minimized = unsafe { IsIconic(self.hwnd).as_bool() };
+        // Restore the normal target before displaying the reader again. LOW
+        // is only a best-effort cache policy: scripts, recitation and downloads
+        // keep running; the WebView is never suspended or forcibly trimmed.
+        self.update_memory_target(minimized);
         let controller = self.controller.borrow().clone();
         if let Some(controller) = controller {
             let mut rect = RECT::default();
             unsafe {
-                if GetClientRect(self.hwnd, &mut rect).is_ok()
+                // Iconic HWND bounds are the tiny minimized caption rectangle,
+                // not a useful reading viewport. Keep the last real backing
+                // size while hidden instead of shrinking/rasterizing it twice.
+                if !minimized && GetClientRect(self.hwnd, &mut rect).is_ok()
                     && self.last_bounds.replace(rect) != rect
                 {
                     let _ = controller.SetBounds(rect);
                 }
-                let _ = controller.SetIsVisible(self.document_ready.get() && !IsIconic(self.hwnd).as_bool());
+                let _ = controller.SetIsVisible(self.document_ready.get() && !minimized);
                 let _ = controller.NotifyParentWindowPositionChanged();
             }
+        }
+        #[cfg(feature = "qa")]
+        if self.last_minimized.replace(Some(minimized)) != Some(minimized) {
+            self.report_qa_window_state();
         }
         let maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
         if self.last_maximized.replace(Some(maximized)) != Some(maximized) {
@@ -312,6 +332,55 @@ impl Host {
             } else {
                 "native-window-restored"
             });
+        }
+    }
+    fn update_memory_target(&self, minimized: bool) {
+        if self.memory_target_minimized.get() == Some(minimized) {
+            return;
+        }
+        let view = self.memory_view.borrow().clone();
+        let Some(view) = view else {
+            return;
+        };
+        self.memory_target_minimized.set(Some(minimized));
+        let target = if minimized {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+        } else {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+        };
+        if unsafe { view.SetMemoryUsageTargetLevel(target) }.is_err() {
+            // Keep the reader functional on an unsupported or failing runtime.
+            // Retry on the next visibility transition, not on every WM_MOVE.
+            logging::write("WebView2 memory target request was unavailable");
+        }
+    }
+    #[cfg(feature = "qa")]
+    fn report_qa_window_state(&self) {
+        let memory_view = self.memory_view.borrow().clone();
+        let mut target = COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL;
+        let memory_target = memory_view.as_ref().and_then(|view| {
+            unsafe { view.MemoryUsageTargetLevel(&mut target) }
+                .ok()
+                .map(|_| {
+                    if target == COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW {
+                        "low"
+                    } else {
+                        "normal"
+                    }
+                })
+        });
+        let state = serde_json::json!({
+            "type": "native-qa-window-state",
+            "minimized": unsafe { IsIconic(self.hwnd).as_bool() },
+            "memorySupported": memory_view.is_some(),
+            "memoryTarget": memory_target,
+            "fullscreen": self.fullscreen.get(),
+        });
+        if let Some(view) = self.webview() {
+            let value = CoTaskMemPWSTR::from(state.to_string().as_str());
+            unsafe {
+                let _ = view.PostWebMessageAsJson(*value.as_ref().as_pcwstr());
+            }
         }
     }
     fn enqueue(&self, message: Message) {
@@ -365,6 +434,17 @@ impl Host {
             }
             Message::FullscreenRequest { active } => self.set_fullscreen(active),
             Message::ReaderReady {} => self.synchronize(),
+            #[cfg(feature = "qa")]
+            Message::QaWindowState { action } => {
+                if action == protocol::QaWindowAction::Restore {
+                    self.update_memory_target(false);
+                    unsafe {
+                        let _ = ShowWindow(self.hwnd, SW_RESTORE);
+                    }
+                    self.resize();
+                }
+                self.report_qa_window_state();
+            }
             Message::WindowAction { action } => unsafe {
                 match action {
                     WindowAction::Minimize => {
@@ -523,6 +603,10 @@ impl Host {
     }
     fn close_controller(&self) {
         // End event registration ownership explicitly, including during recovery.
+        drop(self.memory_view.borrow_mut().take());
+        self.memory_target_minimized.set(None);
+        #[cfg(feature = "qa")]
+        self.last_minimized.set(None);
         let controller = self.controller.borrow_mut().take();
         self.last_bounds.set(RECT::default());
         if let Some(controller) = controller {
@@ -542,7 +626,9 @@ impl Host {
     }
     fn start_webview(self: &Rc<Self>) {
         self.document_ready.set(false);
-        unsafe { let _ = InvalidateRect(Some(self.hwnd), None, false); }
+        unsafe {
+            let _ = InvalidateRect(Some(self.hwnd), None, false);
+        }
         let generation = self.generation.get() + 1;
         self.generation.set(generation);
         let weak = Rc::downgrade(self);
@@ -615,6 +701,9 @@ impl Host {
     ) -> windows::core::Result<()> {
         unsafe {
             let view = controller.CoreWebView2()?;
+            // Older Evergreen runtimes retain the existing visibility behavior
+            // when this optional interface is unavailable.
+            *self.memory_view.borrow_mut() = view.cast::<ICoreWebView2_19>().ok();
             let settings = view.Settings()?;
             settings.SetAreDevToolsEnabled(false)?;
             settings.SetAreDefaultContextMenusEnabled(false)?;
@@ -903,8 +992,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     // The class owns this icon. Use it until HTML can read the
                     // saved language and show its single localized loading line.
                     let icon = HICON(GetClassLongPtrW(hwnd, GCLP_HICON) as *mut _);
-                    let _ = DrawIconEx(dc, center - unit(24.0), rect.bottom / 2 - unit(48.0),
-                        icon, unit(48.0), unit(48.0), 0, None, DI_NORMAL);
+                    let _ = DrawIconEx(
+                        dc,
+                        center - unit(24.0),
+                        rect.bottom / 2 - unit(48.0),
+                        icon,
+                        unit(48.0),
+                        unit(48.0),
+                        0,
+                        None,
+                        DI_NORMAL,
+                    );
                     let brush = GetStockObject(DC_BRUSH);
                     let old_brush = SelectObject(dc, brush);
                     let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));

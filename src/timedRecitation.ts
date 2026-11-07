@@ -1,5 +1,6 @@
 import { loadTimings, timedAudioUrl, timingAt, type AyahTiming } from './timedAudio.ts';
-import { validAudioResponse } from './audioFormat.ts';
+import { cachedAudioSource } from './cachedAudioSource.ts';
+import { audioResponseBlob } from './audioFormat.ts';
 import type { StreamStatus } from './recitationStream';
 import type { AudioPoint, AudioSegment } from './recitationPlan';
 
@@ -67,12 +68,21 @@ export class TimedRecitation {
       const url = timedAudioUrl(this.reciter, this.chapter);
       let response: Response | undefined;
       try { response = await (await caches.open('quran-audio-v1')).match(url); } catch { /* Streaming needs no cache. */ }
-      if (response && !await validAudioResponse(response.clone())) { await (await caches.open('quran-audio-v1')).delete(url); response = undefined; }
+      let cachedSource: string | null | undefined, blob: Blob | undefined;
+      try {
+        cachedSource = response ? await cachedAudioSource(url, this.abort.signal) : undefined;
+        blob = response && cachedSource === undefined ? await audioResponseBlob(response, this.abort.signal) : undefined;
+      } finally {
+        // Stop during worker activation/validation must also release the
+        // original unused cache response, including on an aborted await.
+        if (response?.body && !response.bodyUsed) void response.body.cancel().catch(()=>{});
+      }
+      if (response && !blob && !cachedSource) await (await caches.open('quran-audio-v1')).delete(url);
       if (this.stopped) return;
-      const objectUrl = response ? URL.createObjectURL(await response.blob()) : '';
+      const objectUrl = blob ? URL.createObjectURL(blob) : '';
       if (this.stopped) { if (objectUrl) URL.revokeObjectURL(objectUrl); return; }
       if (this.objectUrl) URL.revokeObjectURL(this.objectUrl); this.objectUrl = objectUrl;
-      this.media.src = objectUrl || url;
+      this.media.src = cachedSource || objectUrl || url;
       this.sourceChapter = this.chapter;
       this.media.defaultPlaybackRate = this.speed(); this.media.playbackRate = this.speed(); this.media.load();
       // A source that never reports metadata also has a bounded recovery path.
@@ -153,10 +163,11 @@ export class TimedRecitation {
   }
   pause() { this.wanted = false; this.clearTimers(); this.media.pause(); }
   dispose() {
+    if (this.stopped) return;
     this.stopped = true; this.abort.abort(); this.clearTimers(); this.media.pause();
     this.media.removeEventListener('loadedmetadata', this.loaded); this.media.removeEventListener('timeupdate', this.tick); this.media.removeEventListener('ended', this.ended);
     this.media.removeEventListener('waiting', this.stalled); this.media.removeEventListener('stalled', this.stalled); this.media.removeEventListener('playing', this.playing); this.media.removeEventListener('error', this.failed);
     if (typeof window !== 'undefined') window.removeEventListener('online', this.online);
-    this.media.removeAttribute('src'); this.media.load(); if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+    this.media.removeAttribute('src'); this.media.load(); if (this.objectUrl) URL.revokeObjectURL(this.objectUrl); this.objectUrl = '';
   }
 }

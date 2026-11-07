@@ -26,7 +26,7 @@ export function AyahActions({ x,y,title,arabic,onClose,onStudy,onListen }: {x:nu
     }
   };
   return <FloatingOverlay className="ayahActionsBackdrop" onClick={onClose} onContextMenu={e=>{e.preventDefault();onClose();}}>
-    <FloatingFocusManager context={context} initialFocus={firstAction}><div ref={refs.setFloating} className="ayahActionsMenu" role="dialog" aria-label={t('Ayah actions','خيارات الآية')} dir={arabic?'rtl':'ltr'} style={floatingStyles} onClick={e=>e.stopPropagation()} onKeyDown={keyDown}>
+    <FloatingFocusManager context={context} initialFocus={firstAction} returnFocus={false}><div ref={refs.setFloating} className="ayahActionsMenu" role="dialog" aria-label={t('Ayah actions','خيارات الآية')} dir={arabic?'rtl':'ltr'} style={floatingStyles} onClick={e=>e.stopPropagation()} onKeyDown={keyDown}>
       <header><strong>{title}</strong><button aria-label={t('Close','إغلاق')} onClick={onClose}><X size={16}/></button></header>
       <button ref={firstAction} className="ayahPrimaryAction" onClick={onStudy}><BookOpen size={19}/><span>{t('Tafsir','التفسير')}<small>{t('Read the explanation','اقرأ تفسير الآية')}</small></span></button>
       <div className="ayahListeningGroup">

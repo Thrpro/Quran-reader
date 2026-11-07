@@ -331,7 +331,11 @@ try {
     await checkPages([45, 46]);
     await page.keyboard.press("ArrowLeft");
     await checkPages([47, 48]);
-    await page.mouse.move(10, 10);
+    // Use the visible, user-facing access button rather than racing a brief
+    // top-edge hover reveal against pointer movement and the hide timer.
+    const toolsAccess = page.locator('.sideToolsAccess');
+    if (await toolsAccess.isVisible() && await toolsAccess.getAttribute('aria-expanded') !== 'true') await toolsAccess.click();
+    else await page.mouse.move(10, 10);
     await page.locator(".readerSettingsControl").click();
     assert.equal(await page.locator(".settingsPanel fieldset").first().getAttribute("class"), "settingGroup languageSetting");
     await drag(180);
@@ -545,6 +549,12 @@ try {
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
   report.failure = { message: error.message };
+  if (browser) for (const context of browser.contexts()) for (const [index, page] of context.pages().entries()) {
+    await page.screenshot({path:resolve(output, `failure-${index}.png`)}).catch(() => {});
+    report.failure.ui = await page.evaluate(() => ({ shell:document.querySelector('.appShell')?.className,
+      active:document.activeElement?.outerHTML, controls:document.querySelector('.floatingControls')?.outerHTML,
+      panels:[...document.querySelectorAll('.panel,.ayahStudyPanel,.readingToolsPanel')].map(el=>el.className) })).catch(() => null);
+  }
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2));
   throw error;
 } finally {

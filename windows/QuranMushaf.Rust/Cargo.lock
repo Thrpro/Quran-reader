@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "quran-mushaf-reader"
-version = "0.5.8"
+version = "0.5.15"
 dependencies = [
  "serde",
  "serde_json",

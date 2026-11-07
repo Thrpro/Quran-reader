@@ -1,7 +1,7 @@
 {
   "name": "quran-mushaf-reader-prototype",
   "private": true,
-  "version": "0.5.8",
+  "version": "0.5.15",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,11 +27,13 @@
     "installer:windows": "node scripts/build-windows-installer.mjs",
     "release:windows": "npm run publish:windows && npm run check:release && npm run installer:windows",
     "check:dependencies": "node scripts/verify-dependencies.mjs",
-    "check:release": "npm run check:dependencies && npm run test:study && node scripts/verify-maintenance.mjs && node scripts/verify-runtime.mjs && node scripts/verify-rendering-controls.mjs && node scripts/verify-contextual-ink.mjs && node scripts/verify-contextual-folds.mjs && node scripts/verify-topbar-listening.mjs && node scripts/verify-continuous-audio.mjs && node scripts/verify-timed-audio.mjs && node scripts/verify-listening-refinements.mjs && node scripts/verify-error-recovery.mjs"
+    "check:release": "npm run check:dependencies && npm run test:study && node scripts/verify-maintenance.mjs && node scripts/verify-runtime.mjs && node scripts/verify-rendering-controls.mjs && node scripts/verify-contextual-ink.mjs && node scripts/verify-contextual-ink.mjs --software-rendering && node scripts/verify-contextual-folds.mjs && node scripts/verify-ink-lifecycle.mjs && node scripts/verify-startup-priority.mjs && node scripts/verify-topbar-listening.mjs && node scripts/verify-continuous-audio.mjs && node scripts/verify-timed-audio.mjs && node scripts/verify-listening-refinements.mjs && node scripts/verify-player-layout.mjs && node scripts/verify-player-onboarding.mjs && node scripts/verify-render-work.mjs && node scripts/verify-audio-cache-stream.mjs && node scripts/verify-audio-lifetime.mjs && node scripts/verify-error-recovery.mjs",
+    "test:player-layout": "node scripts/verify-player-layout.mjs",
+    "test:listening-memory": "node scripts/verify-listening-memory.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.20",
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "lucide-react": "^1.42.0",
     "page-flip": "2.0.7",
     "react": "^19.0.0",
@@ -45,6 +47,6 @@
     "lz-string": "^1.5.0",
     "playwright": "^1.63.0",
     "typescript": "^5.8.0",
-    "vite": "^7.3.6"
+    "vite": "^7.3.7"
   }
 }

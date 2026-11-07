@@ -14,7 +14,7 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
   const path = resolve(root, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
   if (!path.startsWith(root + sep)) return response.writeHead(403).end();
-  try { response.writeHead(200, { 'content-type': mime[extname(path)] ?? 'application/octet-stream' }).end(await readFile(path)); }
+  try { const body=await readFile(path);response.writeHead(200, { 'content-type': mime[extname(path)] ?? 'application/octet-stream' }).end(body); }
   catch { response.writeHead(404).end(); }
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
@@ -23,19 +23,19 @@ const mp3 = await readFile('tests/fixtures/yasser-continuous-112.mp3');
 const timings = [{ayah:1,start_time:63,end_time:2310},{ayah:2,start_time:2310,end_time:4515},{ayah:3,start_time:4515,end_time:7287},{ayah:4,start_time:7287,end_time:10668}];
 const browser = await chromium.launch({ channel:'msedge', headless:true, args:['--autoplay-policy=no-user-gesture-required'] });
 const report = { native, keyboard:{}, previews:[], playback:{}, layouts:[] }, contexts = [];
-async function reader({ pageNumber = 45, contextual = false, reducedMotion = false } = {}) {
+async function reader({ pageNumber = 45, contextual = false, reducedMotion = false, language = 'english' } = {}) {
   const context = await browser.newContext({ viewport:{width:1920,height:1080}, reducedMotion:reducedMotion?'reduce':'no-preference' });
   contexts.push(context);
   const page = await context.newPage(), errors = [], requests = [], remote = { catalog:0, audio:[] };
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => requests.push(request.url()));
   page.setDefaultTimeout(15000);
-  await page.addInitScript(({pageNumber,contextual,native}) => {
+  await page.addInitScript(({pageNumber,contextual,native,language}) => {
     if(native) { window.__QURAN_RUST_HOST__=true; window.chrome??={}; window.chrome.webview={postMessage(){},addEventListener(){},removeEventListener(){}}; }
     localStorage.setItem('quran-reader-onboarding-v2','done');
-    if(!localStorage.getItem('quran-mushaf-qul-reader:v1')) localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:pageNumber,mode:'spread',theme:'dark',metadataLanguage:'english',contextualText:contextual}));
+    if(!localStorage.getItem('quran-mushaf-qul-reader:v1')) localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:pageNumber,mode:'spread',theme:'dark',metadataLanguage:language,contextualText:contextual}));
     if(!localStorage.getItem('quran-listening-preferences-v1')) localStorage.setItem('quran-listening-preferences-v1',JSON.stringify({mode:'ayah',ayahReciterId:1001,reciterId:0,recordingId:0,speed:1,volume:.8,continuous:false}));
-  },{pageNumber,contextual,native});
+  },{pageNumber,contextual,native,language});
   // More-specific routes are registered after this live-network block.
   await page.route('https://**/*', route => route.abort());
   await page.route('**/api/v3/reciters?**',route=>{
@@ -60,9 +60,9 @@ const noSearch=requests=>assert.equal(requests.filter(url=>url.includes('/ayah-s
 const pagesBounds=page=>page.locator('.readerViewport .pageSlot > .qulPage').evaluateAll(pages=>pages.map(page=>{
   const r=page.getBoundingClientRect();return {page:Number(page.dataset.pageNumber),x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};
 }));
-async function openListen(page) {
+async function openListen(page,language='english') {
   if(!native) {const access=page.locator('.sideToolsAccess');if(await access.count()&&await access.getAttribute('aria-expanded')==='false')await access.click();}
-  await page.getByRole('button',{name:'Listen',exact:true}).click();await page.locator('.readingToolsPanel').waitFor();
+  await page.getByRole('button',{name:language==='arabic'?'استماع':'Listen',exact:true}).click();await page.locator('.readingToolsPanel').waitFor();
 }
 async function closeListen(page) {
   await page.locator('.readingToolsPanel .tafsirPanelHeader').getByRole('button',{name:'Close',exact:true}).click();
@@ -77,7 +77,8 @@ async function authenticQuote(surah,ayah) {
 try {
   const normal=await reader({contextual:true}),page=normal.page;
   await page.waitForFunction(()=>document.querySelectorAll('.pageTurnPreviews > [data-preview-page]').length===4);
-  await page.waitForFunction(()=>document.querySelectorAll('.pageTurnPreviews .shapedInkCanvas').length>=60);
+  await page.waitForFunction(()=>document.querySelectorAll('.pageTurnPreviews .shapedLineInk').length>=60);
+  assert.equal(await page.locator('.pageTurnPreviews canvas').count(),0,'prepared neighbors do not allocate speculative bitmaps');
   report.previews.push(await page.evaluate(()=>({reducedMotion:false,pages:document.querySelectorAll('.pageTurnPreviews > [data-preview-page]').length,canvasBytes:[...document.querySelectorAll('.pageTurnPreviews canvas')].reduce((sum,c)=>sum+c.width*c.height*4,0)})));
   const initial=await page.locator('.readerViewport .ayahRun[tabindex="0"]').getAttribute('data-ayah-key');
   assert.equal(initial,'2:265','right page comes first despite left-page DOM order');
@@ -127,38 +128,97 @@ try {
   assert.equal(await audioPage.locator('audio').evaluate(a=>a.paused),false);
   assert.ok(await audioPage.locator('audio').evaluate(a=>a.currentTime)>=beforeDisclosure,'disclosure does not restart playback');
   await audioPage.locator('.moreReciters summary').click();assert.equal(await audioPage.locator('audio').getAttribute('src'),source);
+  await audioPage.getByRole('combobox',{name:'Ayah',exact:true}).selectOption('2');
+  await audioPage.waitForFunction(()=>{const a=document.querySelector('audio');return !a.paused&&a.currentTime>=2.25&&a.currentTime<4.515;});
+  assert.equal(await audioPage.locator('audio').getAttribute('src'),source,'selecting an ayah keeps the matching continuous recording');
   await audioPage.getByRole('button',{name:'Pause',exact:true}).click();
+  await audioPage.getByRole('combobox',{name:'Ayah',exact:true}).selectOption('3');
+  await audioPage.waitForFunction(()=>{const a=document.querySelector('audio');return a.paused&&a.currentTime>=4.5;});
+  const selectedPausePosition=await audioPage.locator('audio').evaluate(a=>a.currentTime);
+  await audioPage.waitForTimeout(400);assert.equal(await audioPage.locator('audio').evaluate(a=>a.currentTime),selectedPausePosition,'selecting an ayah while paused preserves pause intent');
+  await audioPage.getByRole('combobox',{name:'Ayah',exact:true}).selectOption('1');
+  await audioPage.waitForFunction(()=>{const a=document.querySelector('audio');return a.paused&&a.currentTime<.2;});
   await audioPage.getByRole('combobox',{name:'Playback speed',exact:true}).selectOption('1.25');
   await audioPage.getByRole('slider',{name:'Volume',exact:true}).fill('0.35');
   const beforeContinuation=await audioPage.locator('audio').evaluate(a=>a.currentTime);
   await audioPage.getByRole('checkbox',{name:'Continue to next surah',exact:true}).check();
   assert.equal(await audioPage.locator('audio').getAttribute('src'),source);assert.equal(await audioPage.locator('audio').evaluate(a=>a.currentTime),beforeContinuation);
   await audioPage.getByRole('checkbox',{name:'Continue to next surah',exact:true}).uncheck();await closeListen(audioPage);
+  const dock=audioPage.locator('.recitationDock');
+  const showPlayer=async()=>{if(await dock.getAttribute('data-expanded')!=='true')await dock.getByRole('button',{name:'Show recitation controls',exact:true}).click();await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='true');await audioPage.waitForTimeout(350);};
+  const hidePlayer=async()=>{await dock.getByRole('button',{name:'Collapse player',exact:true}).click();await audioPage.mouse.move(8,80);await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='false');await audioPage.waitForTimeout(350);};
   for(let index=0;index<sizes.length;index++){
     const size=sizes[index];await audioPage.setViewportSize(size);await audioPage.waitForTimeout(650);
+    await showPlayer();
     const actual=await pagesBounds(audioPage);assert.equal(actual.length,baseline[index].length);
     for(let n=0;n<actual.length;n++){
       assert.equal(actual[n].page,baseline[index][n].page);
-      assert.ok(Math.abs(actual[n].width-baseline[index][n].width)<1&&Math.abs(actual[n].height-baseline[index][n].height)<1,`player must not shrink pages at ${size.width}: ${JSON.stringify({baseline:baseline[index],actual})}`);
+      assert.ok(actual[n].height<=baseline[index][n].height+1,'making room for the player does not enlarge the page');
     }
-    const panel=audioPage.locator('.sideRecitationPlayer');let placement='compact';
-    if(await panel.count()){
-      placement='side';const player=await panel.boundingBox();
-      assert.ok(player.x>=0&&player.y>=0&&player.x+player.width<=size.width&&player.y+player.height<=size.height,'side player stays within viewport');
-      for(const quran of actual)assert.ok(player.x+player.width<=quran.x+1||player.x>=quran.right-1||player.y+player.height<=quran.y+1||player.y>=quran.bottom-1,`automatic player must not cover Quran pages: ${JSON.stringify({player,quran})}`);
-    }else assert.equal(await audioPage.locator('.sidePlayerCompact').count(),1,'narrow layout retains compact controls');
-    report.layouts.push({...size,placement,pageWidths:actual.map(p=>p.width),pageHeights:actual.map(p=>p.height)});
-    await audioPage.screenshot({path:resolve(output,`side-player-${native?'native':'browser'}-${size.width}.png`)});
+    const player=await dock.locator('.bottomRecitationPlayer').boundingBox();
+    assert.ok(player.x>=0&&player.y>=0&&player.x+player.width<=size.width+1&&player.y+player.height<=size.height+1,'bottom player stays within viewport');
+    for(const quran of actual)assert.ok(player.x+player.width<=quran.x+1||player.x>=quran.right-1||player.y+player.height<=quran.y+1||player.y>=quran.bottom-1,`expanded player must not cover Quran pages: ${JSON.stringify({player,quran})}`);
+    await audioPage.screenshot({path:resolve(output,`bottom-player-${native?'native':'browser'}-${size.width}.png`)});
+    await hidePlayer();const collapsed=await pagesBounds(audioPage);
+    for(let n=0;n<collapsed.length;n++)assert.ok(collapsed[n].height>=baseline[index][n].height-37,`collapsed player returns reading space except the 36px reveal affordance (1px rounding): ${JSON.stringify({size,baseline:baseline[index],collapsed})}`);
+    assert.equal(await dock.locator('#recitation-player-controls').getAttribute('aria-hidden'),'true');
+    assert.equal(await dock.locator('#recitation-player-controls').evaluate(el=>el.inert),true);
+    report.layouts.push({...size,placement:'auto-hiding-bottom',pageWidths:actual.map(p=>p.width),pageHeights:actual.map(p=>p.height),collapsedPageHeights:collapsed.map(p=>p.height)});
   }
   await audioPage.setViewportSize(sizes[0]);await audioPage.waitForTimeout(350);
+  // Auto-hide changes only the controls/layout; transport state must survive.
+  await showPlayer();await dock.getByRole('button',{name:'Resume',exact:true}).click();
+  await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);
+  await audioPage.locator('main.appShell').focus();await audioPage.mouse.move(8,80);
+  const hidePosition=await audioPage.locator('audio').evaluate(a=>a.currentTime);
+  await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='false',undefined,{timeout:6500});
+  assert.equal(await audioPage.locator('audio').getAttribute('src'),source);
+  assert.equal(await audioPage.locator('audio').evaluate(a=>a.paused),false);
+  assert.equal(await audioPage.locator('audio').evaluate(a=>a.playbackRate),1.25);
+  assert.ok(await audioPage.locator('audio').evaluate(a=>a.currentTime)>hidePosition,'auto-hide does not restart playback');
+  await dock.getByRole('button',{name:'Show recitation controls',exact:true}).hover();
+  await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='true');
+  await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);await audioPage.waitForTimeout(3700);
+  assert.equal(await dock.getAttribute('data-expanded'),'true','pointer over the player prevents auto-hide');
+  await dock.getByRole('button',{name:'Keep player visible',exact:true}).click();
+  await audioPage.mouse.move(8,80);await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);await audioPage.waitForTimeout(3700);
+  assert.equal(await dock.getAttribute('data-expanded'),'true','pin keeps the player visible after the pointer leaves');
+  await dock.getByRole('button',{name:'Keep player visible',exact:true}).click();
+  await audioPage.mouse.move(8,80);await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);
+  await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='false',undefined,{timeout:6500});
+  await dock.getByRole('button',{name:'Show recitation controls',exact:true}).hover();
+  await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='true');
+  const positionSlider=dock.getByRole('slider',{name:'Playback position',exact:true});
+  await positionSlider.focus();await audioPage.mouse.move(8,80);await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);await audioPage.waitForTimeout(3700);
+  assert.equal(await dock.getAttribute('data-expanded'),'true','keyboard focus prevents auto-hide');
+  assert.equal(await positionSlider.evaluate(el=>document.activeElement===el),true);
+  await audioPage.locator('audio').evaluate(a=>a.currentTime=.2);const sliderBox=await positionSlider.boundingBox();
+  await audioPage.mouse.move(sliderBox.x+sliderBox.width*.2,sliderBox.y+sliderBox.height*.5);await audioPage.mouse.down();await audioPage.waitForTimeout(3700);
+  assert.equal(await dock.getAttribute('data-expanded'),'true','seeking never hides controls under the pointer');
+  await audioPage.mouse.up();await dock.getByRole('button',{name:'Pause',exact:true}).click();
+  await audioPage.emulateMedia({reducedMotion:'reduce'});await hidePlayer();
+  await audioPage.locator('main.appShell').focus();
+  await dock.getByRole('button',{name:'Show recitation controls',exact:true}).focus();
+  await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='true');
+  assert.equal(await dock.locator('.primaryPlayback').evaluate(el=>document.activeElement===el),true,'keyboard reveal moves focus to a visible playback control');
+  assert.equal(await audioPage.evaluate(()=>document.getAnimations().filter(animation=>animation.effect?.target?.closest?.('.readerViewport,.bottomRecitationPlayer')).length),0,'reduced motion has no animated player/page resize');
+  await audioPage.keyboard.press('Escape');await audioPage.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='false');
+  assert.equal(await dock.getByRole('button',{name:'Show recitation controls',exact:true}).evaluate(el=>document.activeElement===el),true,'Escape restores focus to the reveal button');
+  await audioPage.emulateMedia({reducedMotion:'no-preference'});await showPlayer();
+  if(native){
+    await audioPage.evaluate(()=>{window.__playerEscapeMessages=[];window.chrome.webview.postMessage=value=>window.__playerEscapeMessages.push(value);});
+    await audioPage.locator('main.appShell').focus();await audioPage.keyboard.press('Escape');
+    assert.equal(await audioPage.evaluate(()=>window.__playerEscapeMessages.some(value=>value?.type==='fullscreen-request'&&value.active===false)),true,'player outside keyboard focus does not swallow reader fullscreen Escape');
+    assert.equal(await dock.getAttribute('data-expanded'),'true','reader Escape does not unexpectedly collapse an unfocused player');
+  }
   // Resume from a different reading page: follow-along must locate the verse
   // using the compact map, without opening/downloading full text search.
   await audioPage.locator('main.appShell').focus();await audioPage.keyboard.press('ArrowRight');
   await audioPage.locator('.readerViewport [data-page-number="601"]').waitFor();
-  await audioPage.locator('.sideRecitationPlayer, .sidePlayerCompact').getByRole('button',{name:'Resume',exact:true}).click();
+  await dock.getByRole('button',{name:'Resume',exact:true}).click();
   await audioPage.locator('.readerViewport [data-page-number="604"]').waitFor();
   await audioPage.waitForFunction(()=>document.querySelector('.readerViewport .ayahRun-reciting'));
-  await audioPage.locator('.sideRecitationPlayer, .sidePlayerCompact').getByRole('button',{name:'Pause',exact:true}).click();
+  await dock.getByRole('button',{name:'Pause',exact:true}).click();
   noSearch(listening.requests);
   const persisted=await audioPage.evaluate(()=>({preferences:JSON.parse(localStorage.getItem('quran-listening-preferences-v1')),resume:JSON.parse(localStorage.getItem('quran-listening-resume-v1'))}));
   assert.equal(persisted.preferences.speed,1.25);assert.equal(persisted.preferences.volume,.35);assert.equal(persisted.preferences.ayahReciterId,1001);assert.ok(persisted.resume.seconds>0);
@@ -169,9 +229,28 @@ try {
   await audioPage.waitForFunction(position=>{const a=document.querySelector('audio');return !a.paused&&a.currentTime>=position-.1;},persisted.resume.seconds);
   assert.equal(await audioPage.locator('audio').evaluate(a=>a.playbackRate),1.25);assert.equal(await audioPage.locator('audio').evaluate(a=>a.volume),.35);
   await audioPage.getByRole('button',{name:'Pause',exact:true}).click();noSearch(listening.requests);assert.deepEqual(listening.errors,[]);
-  report.playback={continuousSourceByDefault:true,extraCatalogRequests:listening.remote.catalog,disclosurePreservesPlayback:true,continuationPreservesPosition:true,preferencePersistence:true,resumeAtSavedPosition:true,followAlongReturnsToAyahPage:true,fullSearchIndexRequests:0};
+  report.playback={continuousSourceByDefault:true,extraCatalogRequests:listening.remote.catalog,disclosurePreservesPlayback:true,continuationPreservesPosition:true,ayahSelectionPreservesPlayPauseIntent:true,preferencePersistence:true,resumeAtSavedPosition:true,followAlongReturnsToAyahPage:true,fullSearchIndexRequests:0,bottomPlayer:{autoHidePreservesPlayback:true,hoverAndFocusKeepOpen:true,seekRemainsVisible:true,hiddenControlsInert:true,reducedMotion:true,escapeRestoresFocus:true}};
+  await listening.context.close();
+  report.reciterFocus=[];
+  for(const language of ['english','arabic']) {
+    const picker=await reader({language}),page=picker.page;
+    await openListen(page,language);
+    const input=page.locator('#ayah-reciter-search');await input.fill('');
+    const options=page.locator('#ayah-reciter-options [role="option"]');
+    const first=await options.first().innerText();
+    assert.equal(await options.evaluateAll(items=>items.every(item=>item.tabIndex===-1)),true,'combobox results are not extra Tab stops');
+    await input.press('ArrowDown');await input.press('Enter');
+    assert.equal(await input.inputValue(),first);
+    assert.equal(await input.evaluate(el=>el===document.activeElement),true,'keyboard selection retains input focus');
+    assert.equal(await input.getAttribute('aria-expanded'),'false');
+    await input.fill('');const second=await options.nth(1).innerText();await options.nth(1).click();
+    assert.equal(await input.inputValue(),second);
+    assert.equal(await input.evaluate(el=>el===document.activeElement),true,'pointer selection restores input focus');
+    assert.equal(await input.getAttribute('aria-expanded'),'false');
+    assert.deepEqual(picker.errors,[]);report.reciterFocus.push({language,keyboard:true,pointer:true});await picker.context.close();
+  }
   await writeFile(resolve(output,`verification-${native?'native':'browser'}.json`),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
-  console.log('Ayah keyboard actions, authentic study quotes, compact lookup, reduced-motion preview avoidance, side-player layout, extra-reciter disclosure, preferences and resume passed.');
+  console.log('Ayah keyboard actions, authentic study quotes, compact lookup, reduced-motion preview avoidance, auto-hiding bottom player, extra-reciter disclosure, preferences and resume passed.');
 }catch(error){
   for(const [index,context] of contexts.entries())for(const page of context.pages()){
     if(page.isClosed())continue;

@@ -31,16 +31,16 @@ const report = [];
 let browser;
 try {
   browser = await chromium.launch({ channel: 'msedge', headless: true });
-  for (const arabic of [false, true]) {
+  for (const arabic of [false, true]) for (const native of [false, true]) {
     const context = await browser.newContext({ viewport: { width: 1024, height: 600 }, permissions: ['clipboard-read', 'clipboard-write'], acceptDownloads: true });
-    await context.addInitScript(arabic => {
+    await context.addInitScript(({arabic, native}) => {
       localStorage.setItem('quran-mushaf-qul-reader:v1', JSON.stringify({ metadataLanguage: arabic ? 'arabic' : 'english', theme: arabic ? 'light' : 'dark', retainedSentinel: 'keep-settings' }));
       localStorage.setItem('fixture-download-index', 'keep-downloads');
-      window.__QURAN_RUST_HOST__ = true;
+      window.__QURAN_RUST_HOST__ = native;
       window.__windowActions = [];
       window.chrome ??= {};
       window.chrome.webview = { postMessage: data => window.__windowActions.push(data) };
-    }, arabic);
+    }, {arabic, native});
     const page = await context.newPage();
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.locator('#ready').waitFor();
@@ -60,24 +60,38 @@ try {
     assert.doesNotMatch(copied, /PRIVATE_FIXTURE_SENTINEL|private\/profile|keep-settings|keep-downloads/);
     assert.equal(JSON.parse(copied).errorType, 'TypeError');
     assert.equal(JSON.parse(copied).retryCount, 1);
-    const downloadEvent = page.waitForEvent('download');
-    await page.getByRole('button', { name: arabic ? 'حفظ ملف' : 'Save file', exact: true }).click();
-    const download = await downloadEvent;
-    const destination = resolve(output, `diagnostics-${arabic ? 'ar' : 'en'}.json`);
-    await download.saveAs(destination);
-    assert.deepEqual(JSON.parse(await readFile(destination, 'utf8')), JSON.parse(copied));
+    const saveButton = page.getByRole('button', { name: arabic ? 'حفظ ملف' : 'Save file', exact: true });
+    if (native) {
+      assert.equal(await saveButton.count(), 0, 'native host must not offer a browser download it cancels');
+      // Copy failure must retain an honest manual-copy fallback rather than
+      // suggest a Save file action that does not exist in the Windows host.
+      await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true,
+        value: { writeText: async () => { throw new Error('Fixture clipboard denied'); } } }));
+      await page.getByRole('button', { name: arabic ? 'نسخ' : 'Copy', exact: true }).click();
+      assert.match(await page.locator('.readerRecoveryNotice').textContent(), /Ctrl\+C/);
+    } else {
+      const downloadEvent = page.waitForEvent('download');
+      await saveButton.click();
+      const download = await downloadEvent;
+      const destination = resolve(output, `diagnostics-${arabic ? 'ar' : 'en'}.json`);
+      await download.saveAs(destination);
+      assert.deepEqual(JSON.parse(await readFile(destination, 'utf8')), JSON.parse(copied));
+    }
     assert.equal(await page.evaluate(() => localStorage.getItem('quran-mushaf-qul-reader:v1')), preferences);
     assert.equal(await page.evaluate(() => localStorage.getItem('fixture-download-index')), 'keep-downloads');
-    await page.screenshot({ path: resolve(output, `recovery-${arabic ? 'ar' : 'en'}.png`) });
-    await page.getByRole('button', { name: arabic ? 'إغلاق التطبيق' : 'Close app', exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => window.__windowActions.at(-1)), { type: 'window-action', action: 'close' });
+    await page.screenshot({ path: resolve(output, `recovery-${arabic ? 'ar' : 'en'}-${native ? 'native' : 'browser'}.png`) });
+    if (native) {
+      await page.getByRole('button', { name: arabic ? 'إغلاق التطبيق' : 'Close app', exact: true }).click();
+      assert.deepEqual(await page.evaluate(() => window.__windowActions.at(-1)), { type: 'window-action', action: 'close' });
+    }
     await page.getByRole('button', { name: arabic ? 'إعادة تحميل التطبيق' : 'Reload app', exact: true }).click();
     await page.locator('#ready').waitFor();
-    report.push({ language: arabic ? 'ar' : 'en', retry: true, reload: true, diagnosticCopyAndSave: true, sanitized: true, settingsPreserved: true, nativeClose: true });
+    report.push({ language: arabic ? 'ar' : 'en', native, retry: true, reload: true, diagnosticCopy: true,
+      diagnosticSaveAvailable: !native, nativeManualCopyFallback: native, sanitized: true, settingsPreserved: true, nativeClose: native });
     await context.close();
   }
   await writeFile(resolve(output, 'verification.json'), `${JSON.stringify(report, null, 2)}\n`);
-  console.log('Localized recovery, retry/reload, non-sensitive diagnostics, retained preferences, and native close passed.');
+  console.log('Localized recovery, browser-only diagnostic saving, native copy/manual-copy fallback, retained preferences, and native close passed.');
 } finally {
   await browser?.close();
   await new Promise(done => server.close(done));

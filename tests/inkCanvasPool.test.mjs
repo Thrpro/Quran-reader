@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { acquireInkCanvas, releaseInkCanvas } from "../src/inkCanvasPool.ts";
+import { acquireInkCanvas, releaseInkCanvas, MAX_IDLE_INK_BYTES } from "../src/inkCanvasPool.ts";
 
 function environment(context) {
   const previous = { document: globalThis.document, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
@@ -98,9 +98,87 @@ test("at most sixty idle backing stores survive a release burst", context => {
   const canvases = Array.from({ length: 61 }, () => acquireInkCanvas(128, 192));
   canvases.forEach(releaseInkCanvas);
   assert.equal(canvases.filter(canvas => canvas.width > 0).length, 60);
-  assert.deepEqual([canvases[60].width, canvases[60].height], [0, 0]);
+  assert.deepEqual([canvases[0].width, canvases[0].height], [0, 0], "oldest idle canvas is evicted first");
+  assert.deepEqual([canvases[60].width, canvases[60].height], [128, 192], "recent layout dimensions remain reusable");
   advance(1500);
   assert.ok(canvases.every(canvas => canvas.width === 0 && canvas.height === 0));
+});
+
+test("byte pressure evicts oldest released stores but never active artwork", context => {
+  const { created } = environment(context);
+  const active = acquireInkCanvas(4096, 4096);
+  const first = acquireInkCanvas(2048, 2048);
+  const second = acquireInkCanvas(2048, 2048);
+  const latest = acquireInkCanvas(2048, 2048);
+  releaseInkCanvas(first); releaseInkCanvas(second);
+  assert.equal(first.width * first.height * 4 + second.width * second.height * 4, MAX_IDLE_INK_BYTES);
+  releaseInkCanvas(latest);
+  assert.deepEqual([first.width, first.height], [0, 0]);
+  assert.deepEqual([second.width, second.height], [2048, 2048]);
+  assert.deepEqual([latest.width, latest.height], [2048, 2048]);
+  assert.deepEqual([active.width, active.height], [4096, 4096], "active stores are not part of the idle budget");
+  assert.equal(acquireInkCanvas(2048, 2048), latest, "recent exact-size stores are reused without allocation");
+  releaseInkCanvas(latest); releaseInkCanvas(active);
+  assert.equal(created.filter(canvas => canvas.width > 0).reduce((bytes, canvas) => bytes + canvas.width * canvas.height * 4, 0), MAX_IDLE_INK_BYTES);
+});
+
+test("an oversized release is discarded without evicting useful small idle stores", context => {
+  environment(context);
+  const small = acquireInkCanvas(100, 100);
+  const oversized = acquireInkCanvas(4096, 4096);
+  releaseInkCanvas(small); releaseInkCanvas(oversized); releaseInkCanvas(oversized);
+  assert.deepEqual([oversized.width, oversized.height], [0, 0]);
+  assert.equal(oversized.removed, 1, "discarded leases still reject duplicate release");
+  const reused = acquireInkCanvas(100, 100);
+  assert.equal(reused, small);
+  releaseInkCanvas(reused);
+});
+
+test("resized reuse debits the previous store before accounting for its new dimensions", context => {
+  const { advance } = environment(context);
+  const first = acquireInkCanvas(2048, 2048);
+  const second = acquireInkCanvas(2048, 2048);
+  releaseInkCanvas(first); releaseInkCanvas(second);
+  const resized = acquireInkCanvas(1024, 1024);
+  assert.equal(resized, first, "a nonmatching request reuses the oldest idle context");
+  releaseInkCanvas(resized);
+  assert.equal(second.width, 2048, "shrinking a reused store does not spuriously evict another one");
+  const current = acquireInkCanvas(2048, 2048);
+  assert.equal(current, second, "exact-size lookup survives byte-accounting changes");
+  advance(1500);
+  assert.deepEqual([resized.width, resized.height], [0, 0]);
+  assert.deepEqual([current.width, current.height], [2048, 2048]);
+  releaseInkCanvas(current);
+  const companion = acquireInkCanvas(2048, 2048);
+  const other = acquireInkCanvas(2048, 2048);
+  releaseInkCanvas(companion); releaseInkCanvas(other);
+  assert.deepEqual([companion.width, companion.height], [2048, 2048], "expiry clears byte accounting before later releases");
+  assert.deepEqual([other.width, other.height], [2048, 2048]);
+});
+
+test("a full-budget store remains reusable, then expiry frees every byte", context => {
+  const { advance } = environment(context);
+  const canvas = acquireInkCanvas(4096, 2048);
+  releaseInkCanvas(canvas);
+  assert.equal(canvas.width * canvas.height * 4, MAX_IDLE_INK_BYTES);
+  const leased = acquireInkCanvas(4096, 2048);
+  assert.equal(leased, canvas);
+  advance(2000);
+  assert.equal(leased.width, 4096, "a stale expiry cannot clear an acquired store");
+  releaseInkCanvas(leased); advance(1500);
+  assert.deepEqual([leased.width, leased.height], [0, 0]);
+});
+
+test("explicit discard clears only the returned lease without retaining its pixels", context => {
+  const { advance } = environment(context);
+  const visible=acquireInkCanvas(100,100),preview=acquireInkCanvas(100,100);
+  releaseInkCanvas(preview,false);
+  assert.deepEqual([preview.width,preview.height],[0,0]);
+  const next=acquireInkCanvas(100,100);
+  assert.notEqual(next,preview,'a discarded preview is not a pooled backing store');
+  advance(2000);
+  assert.deepEqual([visible.width,visible.height],[100,100],'discard never resets the visible lease');
+  releaseInkCanvas(visible);releaseInkCanvas(next);
 });
 
 test("invalid sizes fail before allocating a canvas", context => {

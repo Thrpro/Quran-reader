@@ -34,8 +34,8 @@ try {
     const ready = () => page.waitForFunction(() => {
       const previews = [...document.querySelectorAll(".pageTurnPreviews [data-preview-page] > .qulPage")];
       return previews.length === 4 && previews.every(article => {
-        const canvases = [...article.querySelectorAll("canvas.shapedInkCanvas")];
-        return canvases.length > 0 && canvases.every(canvas => canvas.width > 0 && canvas.height > 0);
+        const lines = [...article.querySelectorAll('.shapedLineInk')];
+        return lines.length > 0 && lines.every(line=>line.getBoundingClientRect().width > 0);
       });
     });
     const idle = () => page.waitForFunction(() => !document.querySelector(".bookFoldOverlay:not(.bookFoldWarmup)"));
@@ -43,6 +43,7 @@ try {
     const results = [];
     for (const direction of ["next", "previous"]) {
       await ready();
+      if (direction === 'next') await page.waitForFunction(()=>document.querySelectorAll('.pageTurnPreviews canvas.shapedInkCanvas').length===0);
       const before = await visible();
       const article = page.locator(`.readerViewport .${direction === "next" ? "leftSlot" : "rightSlot"} > .qulPage`);
       async function hold() {

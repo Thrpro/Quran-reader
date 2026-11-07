@@ -4,7 +4,7 @@ A free, open-source Quran reader for Windows, designed for comfortable Mushaf re
 
 Quran Mushaf Reader is developed with the intention of serving the Book of Allah and making the Quran more accessible to readers, students, and teachers. The project aims to combine a familiar Mushaf presentation with practical tools for recitation, tafsir, and navigation—without altering the underlying Quranic text.
 
-> **Development status:** the current source is v0.5.8, pending release. The earlier public v0.5.0 corresponds to internal build v0.5.4. See PATCH-NOTES-0.5.8.md for all changes since that release, including the intervening internal builds, and SOURCE-RELEASE.md for build instructions.
+> **Development status:** the current source is v0.5.15, a local review build reducing speculative page rasterization, reusing bounded fold surfaces, and streaming saved recitations from the existing offline cache. The earlier public v0.5.0 corresponds to internal build v0.5.4. See PATCH-NOTES-0.5.15.md for this update, PATCH-NOTES-0.5.14.md for the preceding focus/player/rendering fixes, and PATCH-NOTES-0.5.8.md for cumulative earlier changes since the public release. Historical patch notes remain available. SOURCE-RELEASE.md contains build instructions and MEMORY-PERFORMANCE.md records measurements and limitations.
 
 ## Features
 
@@ -13,7 +13,7 @@ Quran Mushaf Reader is developed with the intention of serving the Book of Allah
 - **Tafsir:** access bundled commentary from the reading interface.
 - **Recitation:** listen to ayahs and surahs, choose listening ranges, optionally repeat a range or surah, and adjust playback speed and volume.
 - **Flexible playback:** seek, skip backward or forward by 10 seconds, and control listening from a compact player.
-- **Unobstructed reading:** side playback controls preserve page size; narrow windows use compact expandable controls. Additional recordings are grouped under More reciters.
+- **Unobstructed reading:** choose Bottom or Side during the introduction or in Settings. Side controls use existing page margins or the toolbar; bottom playback controls make temporary space below the pages and hide after inactivity. Hover or focus the compact handle to reveal them, or pin them open. Additional recordings are grouped under More reciters.
 - **Downloads:** save supported surah recitations for offline listening, with progress and storage information. Recitation downloads are optional.
 - **Arabic and English interface:** reading controls adapt to the selected language, with reduced-motion support for interface transitions.
 

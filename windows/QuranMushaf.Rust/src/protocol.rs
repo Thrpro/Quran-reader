@@ -34,6 +34,16 @@ pub enum WindowAction {
     Drag,
 }
 
+// QA controls are compiled out of production and still require the packaged
+// origin. They let isolated tests restore a minimized window without user input.
+#[cfg(feature = "qa")]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum QaWindowAction {
+    Report,
+    Restore,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Message {
@@ -57,6 +67,10 @@ pub enum Message {
         action: WindowAction,
     },
     ReaderReady {},
+    #[cfg(feature = "qa")]
+    QaWindowState {
+        action: QaWindowAction,
+    },
 }
 
 /// Allow only the packaged reader's HTTPS origin, with no credentials.
@@ -240,5 +254,41 @@ mod tests {
             parse_message(SOURCE, &padded_limit),
             Some(Message::ReaderReady {})
         );
+    }
+
+    #[test]
+    fn qa_window_controls_remain_bounded_and_origin_scoped() {
+        for json in [
+            r#"{"type":"qa-window-state","action":"minimize"}"#,
+            r#"{"type":"qa-window-state","action":"report","script":"anything"}"#,
+            r#"{"type":"qa-window-state","action":true}"#,
+        ] {
+            assert_eq!(parse_message(SOURCE, json), None);
+        }
+        let report = r#"{"type":"qa-window-state","action":"report"}"#;
+        assert_eq!(parse_message("https://attacker.example/", report), None);
+        #[cfg(feature = "qa")]
+        {
+            assert_eq!(
+                parse_message(SOURCE, report),
+                Some(Message::QaWindowState {
+                    action: QaWindowAction::Report
+                })
+            );
+            assert_eq!(
+                parse_message(SOURCE, r#"{"type":"qa-window-state","action":"restore"}"#),
+                Some(Message::QaWindowState {
+                    action: QaWindowAction::Restore
+                })
+            );
+        }
+        #[cfg(not(feature = "qa"))]
+        {
+            assert_eq!(parse_message(SOURCE, report), None);
+            assert_eq!(
+                parse_message(SOURCE, r#"{"type":"qa-window-state","action":"restore"}"#),
+                None
+            );
+        }
     }
 }

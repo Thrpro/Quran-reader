@@ -4,7 +4,8 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright';
 
-const root = resolve('dist');
+const root = resolve(process.argv.find(arg=>arg.startsWith('--root='))?.slice(7) ?? 'dist');
+const output = resolve(process.argv.find(arg=>arg.startsWith('--output='))?.slice(9) ?? 'outputs/study-qa');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.otf': 'font/otf', '.woff2': 'font/woff2' };
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -35,6 +36,13 @@ try {
   checks.push('Study module is not fetched before the first page');
   await page.locator('.readerViewport .ayahRun[data-ayah-key="46:22"]').first().click({ button: 'right' });
   await page.locator('.ayahActionsMenu .ayahPrimaryAction').first().click();
+  await page.locator('.studyAyahControls select').waitFor();
+  assert.equal(await page.evaluate(()=>document.querySelector('.ayahStudyPanel')?.contains(document.activeElement)),true,'study takes focus from the original ayah');
+  await page.getByRole('button',{name:'الآية التالية',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.studyAyahControls select')?.value==='23');
+  assert.equal(await page.locator('.readerViewport .ayahRun[data-ayah-key="46:22"]:focus-visible').count(),0,'moving study to the next ayah leaves no focus ring on the original ayah');
+  assert.equal(await page.locator('.readerViewport .ayahRun-selected[data-ayah-key="46:22"]').count(),0,'only the current study ayah remains selected');
+  await page.locator('.studyAyahControls select').selectOption('22');
   await page.getByRole('button', { name: 'تفسير السعدي', exact: true }).click();
   await page.locator('.tafsirPanel .tafsirArabicText').waitFor();
   const actual = await page.locator('.tafsirPanel .tafsirArabicText').textContent();
@@ -86,8 +94,22 @@ try {
   await page.getByRole('button', { name: 'إعادة المحاولة', exact: true }).click();
   await page.locator('.readerViewport .ayahRun[data-ayah-key="46:22"]').first().waitFor();
   checks.push('Failed initial source page still offers Retry and recovers');
+  const alternate=await browser.newContext({viewport:{width:1280,height:900}});
+  await alternate.addInitScript(()=>{localStorage.setItem('quran-reader-onboarding-v2','done');localStorage.setItem('quran-mushaf-qul-reader:v1',JSON.stringify({settingsVersion:5,languageSetupVersion:1,hasChosenLanguage:true,page:45,mode:'spread',contextualText:true,metadataLanguage:'english',theme:'dark'}));});
+  const english=await alternate.newPage();english.on('pageerror',error=>errors.push(error.message));await english.goto(`http://127.0.0.1:${server.address().port}/`);
+  await english.locator('.readerViewport canvas.shapedInkCanvas').first().waitFor();
+  const original=english.locator('.readerViewport .ayahRun[data-ayah-key="2:265"]').first();
+  await original.click({button:'right'});await english.locator('.ayahActionsMenu').waitFor();await english.keyboard.press('Escape');
+  await english.waitForFunction(()=>document.activeElement?.getAttribute('data-ayah-key')==='2:265');
+  await original.click({button:'right'});await english.locator('.ayahActionsMenu .ayahPrimaryAction').first().click();await english.locator('.studyAyahControls select').waitFor();
+  assert.equal(await english.evaluate(()=>document.querySelector('.ayahStudyPanel')?.contains(document.activeElement)),true,'English contextual study owns focus');
+  await english.getByRole('button',{name:'Next ayah',exact:true}).click();await english.waitForFunction(()=>document.querySelector('.studyAyahControls select')?.value==='266');
+  assert.equal(await english.locator('.readerViewport .ayahRun[data-ayah-key="2:265"]:focus-visible').count(),0);
+  assert.equal(await english.locator('.readerViewport .ayahRun-selected[data-ayah-key="2:265"]').count(),0);
+  assert.ok(await english.locator('.readerViewport .ayahRun-selected[data-ayah-key="2:266"]').count());await alternate.close();
+  checks.push('Natural Arabic and contextual English study navigation clears the original focus ring; Escape still restores the ayah-menu opener');
   assert.deepEqual(errors, []);
-  await mkdir('outputs/study-qa', { recursive: true });
-  await writeFile('outputs/study-qa/ui.json', JSON.stringify({ checks, errors }, null, 2));
+  await mkdir(output, { recursive: true });
+  await writeFile(resolve(output,'ui.json'), JSON.stringify({ checks, errors }, null, 2));
   console.log(JSON.stringify({ checks, errors }));
 } finally { await browser?.close(); await new Promise(done => server.close(done)); }

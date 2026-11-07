@@ -10,6 +10,7 @@ const before = sourceIdentity(root);
 for (const [script, args] of [
   [join(root, 'node_modules', 'typescript', 'bin', 'tsc'), []],
   [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), ['build', '--configLoader', 'native']],
+  [join(root, 'scripts', 'build-audio-worker.mjs'), []],
   [join(root, 'scripts', 'prune-dist-assets.mjs'), []],
 ]) {
   if (!existsSync(script)) throw new Error('Build dependencies are missing. Run npm ci first.');

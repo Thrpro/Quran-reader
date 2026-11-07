@@ -56,33 +56,31 @@ try {
  assert.equal(await page.locator('audio').getAttribute('src'),source);assert.equal(new Set(requests.filter(url=>url.includes("yasser-dosari"))).size,1);
  await page.getByRole('button',{name:'Pause',exact:true}).click();const position=await page.locator('audio').evaluate(a=>a.currentTime);await page.waitForTimeout(400);assert.equal(await page.locator('audio').evaluate(a=>a.currentTime),position);
  await page.keyboard.press('Escape');
- const mini=page.locator('.recitationMini');
+ const mini=page.locator('.recitationMini.bottomRecitationPlayer');
+ const reveal=page.locator('.recitationDock').getByRole('button',{name:'Show recitation controls',exact:true});
+ const expand=async()=>{if(await mini.getAttribute('data-expanded')!=='true')await reveal.click();await page.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='true');await page.waitForTimeout(350);};
+ const collapse=async()=>{await mini.getByRole('button',{name:'Collapse player',exact:true}).click();await page.mouse.move(8,80);await page.waitForFunction(()=>document.querySelector('.bottomRecitationPlayer')?.dataset.expanded==='false');await page.waitForTimeout(350);};
  await page.waitForTimeout(400);
  for(const size of viewports) {
    await page.setViewportSize(size);await page.waitForTimeout(650);
+   await expand();
    const before=idleBounds.get(size.width),actual=await readerBounds();
    assert.equal(actual.length,before.length,'playback keeps the same visible pages');
-   actual.forEach((bounds,index)=>Object.keys(bounds).forEach(key=>assert.ok(Math.abs(bounds[key]-before[index][key])<1.5,`playback does not resize or move page ${index} at ${size.width}: ${key}`)));
-   let compact=false;
-   if(!await mini.isVisible()) {
-     compact=true;
-     const trigger=page.locator('.sidePlayerCompact').getByRole('button',{name:/Show (?:recitation|playback) controls/});
-     await trigger.waitFor();await trigger.click();await mini.waitFor();
-   }
    const panel=await mini.boundingBox();
    assert.ok(panel.x>=0&&panel.y>=0&&panel.x+panel.width<=size.width+1&&panel.y+panel.height<=size.height+1,`player fits the window at ${size.width}`);
-   if(!await mini.evaluate(element=>element.classList.contains('sidePlayerPopover'))) {
-     assert.ok(actual.every(bounds=>panel.x+panel.width<=bounds.left+1||panel.x>=bounds.right-1||panel.y+panel.height<=bounds.top+1||panel.y>=bounds.bottom-1),'wide player fits beside the Quran pages');
-   }
-   const controls=await mini.locator('.miniRecording,.miniTransport,.miniTimeline,.miniActions').evaluateAll(elements=>elements.map(el=>{const b=el.getBoundingClientRect();return {top:b.top,bottom:b.bottom};}));
-   const ordered=controls.sort((a,b)=>a.top-b.top);
-   assert.ok(ordered.every((bounds,index)=>index===0||bounds.top>=ordered[index-1].bottom-1),'stacked player sections do not overlap');
-   await page.screenshot({path:resolve(output,`side-player-${native?'native-':''}${size.width}.png`)});
-   if(compact) {await mini.getByRole('button',{name:'Collapse player',exact:true}).click();await page.locator('.sidePlayerCompact').waitFor();}
+   assert.ok(actual.every(bounds=>panel.y>=bounds.bottom-1||panel.x+panel.width<=bounds.left+1||panel.x>=bounds.right-1),'expanded bottom player leaves Quran pages unobstructed');
+   const sections=await mini.locator('.miniRecording,.miniTransport,.miniTimeline,.miniActions').evaluateAll(elements=>elements.map(el=>{const b=el.getBoundingClientRect();return {left:b.left,top:b.top,right:b.right,bottom:b.bottom};}));
+   for(let a=0;a<sections.length;a++)for(let b=a+1;b<sections.length;b++)assert.ok(sections[a].right<=sections[b].left+1||sections[b].right<=sections[a].left+1||sections[a].bottom<=sections[b].top+1||sections[b].bottom<=sections[a].top+1,'player sections do not overlap');
+   await page.screenshot({path:resolve(output,`bottom-player-${native?'native-':''}${size.width}.png`)});
+   await collapse();
+   const collapsed=await readerBounds();
+   collapsed.forEach((bounds,index)=>{assert.ok(bounds.height>=actual[index].height-1,'collapsed player restores reading space');assert.ok(bounds.height>=before[index].height-37,'only the 36px compact reveal affordance plus 1px rounding may reserve space when collapsed');});
+   assert.equal(await mini.getAttribute('aria-hidden'),'true');
+   assert.equal(await mini.evaluate(el=>el.inert),true,'hidden transport controls cannot receive keyboard focus');
  }
  await page.setViewportSize({width:1920,height:1051});
  await page.waitForTimeout(650);
- if(!await mini.isVisible()) await page.locator('.sidePlayerCompact').getByRole('button',{name:/Show (?:recitation|playback) controls/}).click();
+ await expand();
  await page.locator('audio').evaluate(a=>a.currentTime=5);
  await mini.getByRole('button',{name:'Back 10 seconds',exact:true}).click();assert.ok(await page.locator('audio').evaluate(a=>a.currentTime)<.1);
  await page.waitForFunction(()=>!document.querySelector('audio').seeking);
@@ -91,7 +89,7 @@ try {
  const seekState=await page.locator('audio').evaluate(a=>({time:a.currentTime,duration:a.duration,paused:a.paused,max:document.querySelector('.miniTimeline input')?.max}));
  assert.ok(seekState.time>9.9,JSON.stringify(seekState));
  await page.locator('audio').evaluate((a,p)=>a.currentTime=p,position);
- await page.screenshot({path:resolve(output,native?'side-player-native-layout.png':'side-player-clearance.png')});
+ await page.screenshot({path:resolve(output,native?'bottom-player-native-layout.png':'bottom-player-clearance.png')});
  await mini.getByRole('button',{name:'Listening settings',exact:true}).click();
  await page.getByRole('button',{name:'Resume',exact:true}).click();await page.waitForFunction(()=>document.querySelector('audio').ended);assert.equal(await page.locator('audio').evaluate(a=>a.playbackRate),1.5);
  await page.getByRole('button',{name:'Download surah',exact:true}).click();await page.getByRole('button',{name:'Surah saved offline',exact:true}).waitFor();

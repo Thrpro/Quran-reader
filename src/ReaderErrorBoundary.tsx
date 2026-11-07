@@ -5,6 +5,7 @@ import "./ReaderErrorBoundary.css";
 
 type State = { failed: boolean; errorName: string; occurredAt: string; attempts: number; notice: string };
 type RecoveryWindow = Window & { __QURAN_RUST_HOST__?: boolean; chrome?: { webview?: { postMessage: (data: unknown) => void } } };
+const isNativeHost = () => (window as RecoveryWindow).__QURAN_RUST_HOST__ === true;
 
 function preferences() {
   try {
@@ -41,11 +42,16 @@ export class ReaderErrorBoundary extends Component<{ children: ReactNode }, Stat
       await navigator.clipboard.writeText(diagnosticReport(this.state, arabic));
       this.setState({ notice: arabic ? "تم نسخ معلومات الخطأ." : "Diagnostic information copied." });
     } catch {
-      this.setState({ notice: arabic ? "تعذر النسخ. يمكنك حفظ المعلومات في ملف." : "Could not copy. You can save the information to a file instead." });
+      this.setState({ notice: isNativeHost()
+        ? arabic ? "تعذر النسخ. حدد معلومات الخطأ المعروضة ثم اضغط Ctrl+C لنسخها." : "Could not copy. Select the diagnostic information and press Ctrl+C."
+        : arabic ? "تعذر النسخ. يمكنك حفظ المعلومات في ملف." : "Could not copy. You can save the information to a file instead." });
     }
   }
 
   saveReport(arabic: boolean) {
+    // The Windows host deliberately rejects browser downloads. Keep that
+    // security policy and offer Copy instead of reporting a cancelled save.
+    if (isNativeHost()) return;
     try {
       const url = URL.createObjectURL(new Blob([diagnosticReport(this.state, arabic)], { type: "application/json" }));
       const link = document.createElement("a");
@@ -63,7 +69,7 @@ export class ReaderErrorBoundary extends Component<{ children: ReactNode }, Stat
     const { arabic, light } = preferences();
     const text = (english: string, translated: string) => arabic ? translated : english;
     const nativeWindow = window as RecoveryWindow;
-    const native = nativeWindow.__QURAN_RUST_HOST__ === true;
+    const native = isNativeHost();
     return <div className={`readerRecovery${light ? " readerRecoveryLight" : ""}`} lang={arabic ? "ar" : "en"} dir={arabic ? "rtl" : "ltr"}>
       {native ? <header className="readerRecoveryTitle" dir="ltr" onMouseDown={event => {
         if (event.button === 0 && !(event.target instanceof Element && event.target.closest("button"))) {
@@ -87,7 +93,7 @@ export class ReaderErrorBoundary extends Component<{ children: ReactNode }, Stat
             "تتضمن المعلومات إصدار التطبيق ونوع الخطأ ووقته واللغة وإصدار المتصفح فقط. لن تُرسل أي معلومات تلقائيًا.")}</p>
           <pre dir="ltr">{diagnosticReport(this.state, arabic)}</pre>
           <div className="readerRecoveryActions"><button type="button" onClick={() => void this.copyReport(arabic)}><Copy size={16} aria-hidden="true" />{text("Copy", "نسخ")}</button>
-            <button type="button" onClick={() => this.saveReport(arabic)}><Download size={16} aria-hidden="true" />{text("Save file", "حفظ ملف")}</button></div>
+            {!native ? <button type="button" onClick={() => this.saveReport(arabic)}><Download size={16} aria-hidden="true" />{text("Save file", "حفظ ملف")}</button> : null}</div>
         </details>
         <p className="readerRecoveryNotice" role="status">{this.state.notice}</p>
       </main>

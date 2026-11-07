@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { surahHeaderLigatures } from "./surahHeaderLigatures";
+import { ALL_READER_FONTS, ReaderFontLoader, pageFonts } from "./readerFonts";
 import { AsyncPageCache } from "./asyncPageCache";
 import { orderedAyahKeys } from "./ayahKeyboard";
 import { createAyahSearcher } from "./ayahSearch";
@@ -24,6 +25,7 @@ import { LanguageChoices, LanguageSetup } from "./LanguagePicker";
 import type { TafsirSelection, TafsirSource } from "./TafsirPanel";
 import { ReadingTools, type ListeningRequest } from "./ReadingTools";
 import { ShapedQuranLine, refreshShapedInk, type ShapedPage } from "./ShapedQuranLine";
+import { groupAyahWords, pageAyahScope, scopedHighlight, scopedRecitation, wordAyahScope } from "./ayahRenderScope";
 
 // Study HTML sanitizing and the optional library are needed only when opened.
 const TafsirPanel = lazy(() => import("./TafsirPanel").then(module => ({ default: module.TafsirPanel })));
@@ -228,6 +230,7 @@ type ReaderSettings = {
   highlightColor: "auto" | "green" | "gold";
   textMode: TextMode;
   contextualText: boolean;
+  playerPlacement: "bottom" | "side";
   theme: ThemeMode;
   showClock: boolean;
   clockFormat: ClockFormat;
@@ -255,6 +258,7 @@ const defaultSettings: ReaderSettings = {
   highlightColor: "auto",
   textMode: "natural",
   contextualText: false,
+  playerPlacement: "bottom",
   theme: "dark",
   showClock: true,
   clockFormat: "24",
@@ -310,6 +314,7 @@ function readSettings(): ReaderSettings {
       tafsirTextSize: clamp(Number(parsed.tafsirTextSize) || defaultSettings.tafsirTextSize, 16, 26),
       textMode: "natural",
       contextualText: parsed.contextualText === true,
+      playerPlacement: parsed.playerPlacement === "side" ? "side" : "bottom",
       theme: shouldApplyDefaults
         ? defaultSettings.theme
         : parsed.theme === "black" ||
@@ -330,8 +335,8 @@ function readSettings(): ReaderSettings {
   }
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { signal });
   if (!response.ok) {
     throw new Error(`Could not load ${path}`);
   }
@@ -678,32 +683,9 @@ const DigitalKhattLine = memo(function DigitalKhattLine({
   const lineRef = useRef<HTMLDivElement>(null);
   const shouldRenderAyahRuns = line.type === "ayah" && line.words.length > 0;
   const shouldJustifyLine = line.type === "ayah" && !line.isCentered;
-  const ayahRuns = shouldRenderAyahRuns
-    ? line.words.reduce<
-        {
-          key: string;
-          isHighlighted: boolean;
-          glyphs: string[];
-        }[]
-      >((runs, word) => {
-        const isHighlighted = wordMatchesAyah(word.id, highlightedAyah);
-        const ayahKey = `${word.surah}:${word.ayah}`;
-        const lastRun = runs.at(-1);
-
-        if (lastRun && lastRun.key === ayahKey) {
-          lastRun.glyphs.push(word.text);
-          lastRun.isHighlighted ||= isHighlighted;
-          return runs;
-        }
-
-        runs.push({
-          key: ayahKey,
-          isHighlighted,
-          glyphs: [word.text],
-        });
-        return runs;
-      }, [])
-    : [];
+  const ayahRuns = useMemo(() => groupAyahWords(line.words).map(run => ({
+    key: run.key, scope: run.scope, glyphs: run.words.map(word => word.text),
+  })), [line.words]);
   const style = {
     "--line-number": line.lineNumber,
   } as CSSProperties;
@@ -746,7 +728,7 @@ const DigitalKhattLine = memo(function DigitalKhattLine({
               {ayahRuns.map((run, index) => {
                 return (
                   <span
-                    className={`ayahRun qpcWordRun ${run.isHighlighted ? "ayahHighlightRun" : ""} ${run.key === recitationAyah ? "ayahRun-reciting" : ""}`}
+                    className={`ayahRun qpcWordRun ${scopedHighlight(run.scope, highlightedAyah) ? "ayahHighlightRun" : ""} ${run.key === recitationAyah ? "ayahRun-reciting" : ""}`}
                     data-ayah-key={run.key}
                     key={run.key}
                   >
@@ -901,10 +883,13 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
         clockFormat={clockFormat}
       />
       {page.lines.map((line) => {
+        const scope = wordAyahScope(line.words);
+        const lineHighlight = scopedHighlight(scope, highlightedAyah);
+        const lineRecitation = scopedRecitation(scope, recitationAyah);
         const shape = contextualText ? page.shaped?.lines[line.lineNumber] : undefined;
         if (shape && page.outlines) return <ShapedQuranLine key={line.lineNumber}
           shape={shape} outlines={page.outlines} words={line.words} lineNumber={line.lineNumber}
-          highlighted={highlightedAyah} reciting={recitationAyah} darkInk={contextualInkWeight} renderScale={renderScale} inkTheme={inkTheme} />;
+          highlighted={lineHighlight} reciting={lineRecitation} darkInk={contextualInkWeight} renderScale={renderScale} inkTheme={inkTheme} />;
         const surah = line.surahNumber ? surahsById.get(line.surahNumber) : null;
         const text =
           line.type === "surah_name" && surah
@@ -917,8 +902,8 @@ const DigitalKhattPage = memo(function DigitalKhattPage({
           <DigitalKhattLine
             key={line.lineNumber}
             line={line}
-            highlightedAyah={highlightedAyah}
-            recitationAyah={recitationAyah}
+            highlightedAyah={lineHighlight}
+            recitationAyah={lineRecitation}
             text={text}
           />
         );
@@ -968,8 +953,11 @@ function PageTurnPreviews({ pageNumbers, cache, renderPage }: {
   const pages = pageNumbers
     .map((pageNumber) => cache.peek(pageNumber))
     .filter((page): page is QpcPage => page !== undefined);
-  return pages.map((page) => (
-    <div key={page.pageNumber} data-preview-page={page.pageNumber}>
+  // These are reusable drawing slots, not stored page state. Content and
+  // hit-target identities follow the supplied page; keeping the slot mounted
+  // avoids replacing every canvas/observer/compositor subtree on each turn.
+  return pages.map((page, slot) => (
+    <div key={slot} data-preview-page={page.pageNumber}>
       {renderPage(page.pageNumber, page)}
     </div>
   ));
@@ -1127,6 +1115,7 @@ export default function App() {
   const [data, setData] = useState<QulData | null>(null);
   const [qpcData, setQpcData] = useState<QpcData>(() => ({ pages: new Map() }));
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [pageLoadError, setPageLoadError] = useState(false);
   const [pageLoadAttempt, setPageLoadAttempt] = useState(0);
   const [settings, setSettings] = useState<ReaderSettings>(() => readSettings());
@@ -1134,6 +1123,8 @@ export default function App() {
   const [isJumpOpen, setIsJumpOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [readingToolsOpen, setReadingToolsOpen] = useState(false);
+  const [playerSpace, setPlayerSpace] = useState(0);
+  const [playerSideSpace, setPlayerSideSpace] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(() => !isRustNativeHost());
   const controlsHideTimerRef = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1172,7 +1163,11 @@ export default function App() {
   const [tafsirSource, setTafsirSource] = useState<TafsirSource>("mukhtasar");
   const [ayahSearchIndex, setAyahSearchIndex] = useState<AyahSearchEntry[] | null>(null);
   const [isSearchDataLoading, setIsSearchDataLoading] = useState(false);
-  const [readerFontsReady, setReaderFontsReady] = useState(false);
+  const [fontRevision, setFontRevision] = useState(0);
+  const [readerFonts] = useState(() => new ReaderFontLoader(async declaration => {
+    const faces = await document.fonts.load(declaration);
+    if (!faces.length) throw new Error('Required reader font unavailable');
+  }));
   const didLogFirstPage = useRef(false);
   const appShellRef = useRef<HTMLElement | null>(null);
   const lastNativeThemeRef = useRef<string | null>(null);
@@ -1206,6 +1201,7 @@ export default function App() {
   const navigationRequestRef = useRef(0);
   const searchIndexLoadRef = useRef<Promise<AyahSearchEntry[]> | null>(null);
   const [readerScale, setReaderScale] = useState(1);
+  const [previewScale, setPreviewScale] = useState(1);
   const [contextualInkWeight, setContextualInkWeight] = useState(() =>
     window.devicePixelRatio < 1.5 && !["light", "sepia"].includes(settings.theme)
       && (settings.theme !== "system" || !window.matchMedia("(prefers-color-scheme: light)").matches));
@@ -1270,39 +1266,42 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      document.fonts.load('48px "Digital Khatt V2"'),
-      document.fonts.load('64px "QUL Surah Header Color"'),
-      document.fonts.load('32px "QUL Surah Name V4"'),
-    ]).then(() => document.fonts.ready).then(() => {
-      if (!cancelled) setReaderFontsReady(true);
+    void readerFonts.load(['text']).then(() => {
+      if (!cancelled) setFontRevision(revision => revision + 1);
     }).catch((error: unknown) => {
-      console.warn("[Reader] Could not prewarm all reader fonts:", error);
-      if (!cancelled) setReaderFontsReady(true);
+      console.warn('[Reader] Could not load the text font:', error);
+      if (!cancelled) setLoadError('font');
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [readerFonts, startupAttempt]);
 
   useEffect(() => {
     const loadStartedAt = performance.now();
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
+    setLoadError(null);
     Promise.all([
-      fetchJson<Surah[]>("/data/qul/processed/surahs.json"),
-      fetchJson<PageIndex[]>("/data/qul/processed/page-index.json"),
-      fetchJson<JuzIndex[]>("/data/qul/processed/juz.json"),
-      fetchJson<HizbIndex[]>("/data/qul/processed/hizb.json"),
-      fetchJson<RubIndex[]>("/data/qul/processed/rub.json"),
-      fetchJson<SurahStartPage[]>("/experimental/digital-khatt/surah-start-pages.json"),
+      fetchJson<Surah[]>("/data/qul/processed/surahs.json", signal),
+      fetchJson<PageIndex[]>("/data/qul/processed/page-index.json", signal),
+      fetchJson<JuzIndex[]>("/data/qul/processed/juz.json", signal),
+      fetchJson<HizbIndex[]>("/data/qul/processed/hizb.json", signal),
+      fetchJson<RubIndex[]>("/data/qul/processed/rub.json", signal),
+      fetchJson<SurahStartPage[]>("/experimental/digital-khatt/surah-start-pages.json", signal),
     ])
       .then(([surahs, pageIndex, juz, hizb, rub, surahStarts]) => {
+        if (controller.signal.aborted) return;
         setData({ surahs, pageIndex, juz, hizb, rub, surahStarts });
         console.info(
           `[Digital Khatt] Reader metadata loaded in ${Math.round(performance.now() - loadStartedAt)}ms.`,
         );
       })
       .catch((error: unknown) => {
-        setLoadError(error instanceof Error ? error.message : "Could not load Mushaf data");
+        if (controller.signal.aborted) return;
+        console.warn('[Reader] Could not load startup metadata:', error);
+        setLoadError('metadata');
       });
-  }, []);
+    return () => controller.abort();
+  }, [startupAttempt]);
 
   useEffect(() => {
     window.focus();
@@ -1531,6 +1530,8 @@ export default function App() {
   const readerStyle = {
     "--manual-text-scale": settings.textScale / 100,
     "--reader-fit-scale": readerScale,
+    "--recitation-reserve": `${playerSpace}px`,
+    "--recitation-side-reserve": `${playerSideSpace}px`,
   } as CSSProperties;
   const spreadNaturalWidth = PAGE_ASPECT_WIDTH * 2 + PAGE_GAP;
   const singleNaturalWidth = PAGE_ASPECT_WIDTH;
@@ -1620,17 +1621,40 @@ export default function App() {
     return () => { cancelled = true; };
   }, [settings.contextualText, currentQpcPageNumbers, preloadQpcPageNumbers, shapedCache, data, pageLoadAttempt]);
 
+  const requiredFonts = pageFonts(currentQpcPageNumbers.map(number => qpcData.pages.get(number) ?? pageCache.peek(number))
+    .filter((page): page is QpcPage => Boolean(page)));
+  const readerFontsReady = readerFonts.ready(requiredFonts);
+  const previewFontsReady = readerFonts.ready(ALL_READER_FONTS);
+
   const areCurrentQpcPagesLoaded =
     readerFontsReady &&
     qpcData !== null &&
     currentQpcPageNumbers.length > 0 &&
     currentQpcPageNumbers.every((pageNumber) => qpcData.pages.has(pageNumber) || pageCache.peek(pageNumber));
 
+  useEffect(() => {
+    if (!areCurrentQpcPagesLoaded || previewFontsReady) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void readerFonts.load(ALL_READER_FONTS).then(() => {
+        if (!cancelled) setFontRevision(revision => revision + 1);
+      }).catch(error => console.warn('[Reader] Optional font preparation deferred:', error));
+    }, 100);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [readerFonts, areCurrentQpcPagesLoaded, previewFontsReady, fontRevision]);
+
   const { turnPage, releaseKeyboardTurns } = usePageDrag({
     viewport: readerViewportRef,
     previews: pageTurnPreviewsRef,
     pageKey: `${settings.mode}:${spreadStart}`,
-    layoutKey: tafsirSelection ? "study" : "reader",
+    layoutKey: `${tafsirSelection ? "study" : "reader"}:${playerSpace}:${playerSideSpace}`,
+    // Follow-along replaces spreads directly. Player show/hide is also a
+    // layout change, not an indication that the reader wants to turn a page.
+    // Keep neighboring pages, and create the same fold on a manual command.
+    // Contextual neighbors already hold complete bitmaps. Building and rotating
+    // an extra hidden fold on every idle spread creates redundant graphics
+    // surfaces; snapshot the same full-density neighbors on an actual command.
+    prewarm: !settings.contextualText && recitationAyah === null && playerSpace === 0 && playerSideSpace === 0,
     page: spreadStart,
     spread: isSpreadMode,
     enabled: areCurrentQpcPagesLoaded && settings.hasChosenLanguage && !tafsirSelection && !isJumpOpen && !isSettingsOpen && !readingToolsOpen && !ayahActions,
@@ -1672,27 +1696,43 @@ export default function App() {
     // Page identities come from saved settings, so the visible spread can load
     // alongside metadata. Optional previews wait for metadata to avoid competing
     // with the initial source/font requests.
-    const visiblePages = Promise.all(currentQpcPageNumbers.map((pageNumber) => pageCache.load(pageNumber)));
-    void visiblePages
-      .then((pages) => {
-        if (isCancelled) {
-          return;
-        }
-
-        // Keep only the visible spread in React state; prefetching must not redraw it.
-        const currentPages = pages.filter((page) => currentQpcPageNumbers.includes(page.pageNumber));
-        setQpcData({ pages: new Map(currentPages.map((page) => [page.pageNumber, page])) });
-      })
-      .catch((error: unknown) => {
+    const prepareVisiblePages = async () => {
+      let pages: QpcPage[];
+      try {
+        pages = await Promise.all(currentQpcPageNumbers.map((pageNumber) => pageCache.load(pageNumber)));
+      } catch (error: unknown) {
         if (isCancelled) return;
         setPageLoadError(true);
         console.warn("[Digital Khatt] Could not load current page data:", error);
-      });
+        return;
+      }
+      if (isCancelled) return;
+
+      // The resolved source pages own their mandatory font preparation. Do not
+      // depend on another render discovering mutable cache/font readiness.
+      // Ordinary pages still need only text; successful faces are shared.
+      const fonts = pageFonts(pages);
+      try {
+        if (!readerFonts.ready(fonts)) await readerFonts.load(fonts);
+      } catch (error: unknown) {
+        if (isCancelled) return;
+        setLoadError('font');
+        console.warn('[Reader] Could not load page fonts:', error);
+        return;
+      }
+      if (isCancelled) return;
+
+      setLoadError(error => error === 'font' ? null : error);
+      // Publish one ready spread. Optional prefetching never redraws it.
+      const currentPages = pages.filter((page) => currentQpcPageNumbers.includes(page.pageNumber));
+      setQpcData({ pages: new Map(currentPages.map((page) => [page.pageNumber, page])) });
+    };
+    void prepareVisiblePages();
 
     return () => {
       isCancelled = true;
     };
-  }, [currentQpcPageNumbers, pageCache, pageLoadAttempt]);
+  }, [currentQpcPageNumbers, pageCache, pageLoadAttempt, readerFonts, startupAttempt]);
 
   useEffect(() => {
     if (!data || !areCurrentQpcPagesLoaded) return;
@@ -1774,6 +1814,13 @@ export default function App() {
       setReaderScale((current) =>
         Math.abs(current - nextScale) > 0.003 ? Number(nextScale.toFixed(4)) : current,
       );
+      // Hidden neighbors need no resize when the bottom player comes and goes.
+      // Keep them at the full reading-area density; folds can downsample these
+      // original pixels, while visible pages still settle at their exact size.
+      const fullHeight = Math.min(viewportHeight + (tafsirSelection ? 0 : playerSpace), window.visualViewport?.height ?? window.innerHeight);
+      const nextPreviewScale = Math.min(isFullscreen ? Number.POSITIVE_INFINITY : MAX_FIT_SCALE,
+        availableWidth / naturalWidth, Math.max(0, fullHeight - verticalPadding) / naturalHeight);
+      setPreviewScale(current => Math.abs(current - nextPreviewScale) > 0.003 ? Number(nextPreviewScale.toFixed(4)) : current);
     }
 
     function scheduleUpdate() {
@@ -1796,7 +1843,7 @@ export default function App() {
       window.visualViewport?.removeEventListener("scroll", scheduleUpdate);
       window.cancelAnimationFrame(frame);
     };
-  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen]);
+  }, [isSpreadMode, Boolean(tafsirSelection), isFullscreen, playerSpace, playerSideSpace]);
 
   const previousReaderBounds = useRef<DOMRect | null>(null);
   const readerLayoutAnimation = useRef<Animation | null>(null);
@@ -1823,7 +1870,7 @@ export default function App() {
     void animation.finished.then(() => {
       if (readerLayoutAnimation.current === animation) refreshShapedInk();
     }, () => {});
-  }, [readerScale, Boolean(tafsirSelection), areCurrentQpcPagesLoaded, isSpreadMode]);
+  }, [readerScale, Boolean(tafsirSelection), areCurrentQpcPagesLoaded, isSpreadMode, playerSpace, playerSideSpace]);
 
   useEffect(() => {
     const viewport = readerViewportRef.current;
@@ -2020,6 +2067,7 @@ export default function App() {
     const key = run.dataset.ayahKey ?? "";
     const match = key.match(/^(\d+):(\d+)$/);
     if (!match) return;
+    setHoveredAyah(null);
     tafsirContextPage.current = { key, page: Number(run.closest<HTMLElement>("[data-page-number]")?.dataset.pageNumber) };
     setIsJumpOpen(false);
     setIsSettingsOpen(false);
@@ -2134,7 +2182,7 @@ export default function App() {
     };
   }
 
-  function renderReaderPage(pageNumber: number, preparedPage?: QpcPage) {
+  function renderReaderPage(pageNumber: number, preparedPage?: QpcPage, renderScale = readerScale) {
     const meta = getPageMeta(pageNumber);
     const showSideLabel = !isSpreadMode;
     const qpcPage = (settings.contextualText ? shapedCache.peek(pageNumber) : undefined)
@@ -2142,10 +2190,9 @@ export default function App() {
     if (qpcPage) {
       return (
         <DigitalKhattPage
-          key={`digital-khatt-page-${pageNumber}`}
           contextualText={settings.contextualText}
           contextualInkWeight={contextualInkWeight}
-          renderScale={readerScale}
+          renderScale={renderScale}
           inkTheme={settings.theme}
           page={qpcPage}
           surahsById={surahsById}
@@ -2154,8 +2201,8 @@ export default function App() {
           metadataLanguage={settings.metadataLanguage}
           currentTime={currentTime}
           clockFormat={settings.clockFormat}
-          highlightedAyah={highlightedAyah}
-          recitationAyah={recitationAyah}
+          highlightedAyah={scopedHighlight(pageAyahScope(qpcPage), highlightedAyah)}
+          recitationAyah={scopedRecitation(pageAyahScope(qpcPage), recitationAyah)}
         />
       );
     }
@@ -2188,7 +2235,7 @@ export default function App() {
       if (target?.closest(".ayahActionsMenu")) return;
       // Let an explicitly opened playback panel consume Escape before leaving
       // fullscreen or dismissing unrelated reader controls.
-      if (event.key === "Escape" && document.querySelector(".sidePlayerPopover, .readingToolsPanel")) return;
+      if (event.key === "Escape" && (target?.closest('.recitationDock') || document.querySelector('.readingToolsPanel, .recitationDock[data-layout="popover"][data-expanded="true"]'))) return;
       const isTyping =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -2464,23 +2511,45 @@ export default function App() {
       ) : null}
       {settings.hasChosenLanguage && showReaderTips && !tafsirSelection && !isJumpOpen && !isSettingsOpen && !readingToolsOpen ? (
         <aside className="readerTips" dir={settings.metadataLanguage === "arabic" ? "rtl" : "ltr"} aria-label={settings.metadataLanguage === "arabic" ? "التعريف بالتطبيق" : "App introduction"}>
-          <div className="readerTipsProgress" aria-hidden="true">{[0, 1, 2].map(step => <span key={step} className={step === onboardingStep ? "current" : ""} />)}</div>
+          <div className="readerTipsProgress" aria-hidden="true">{[0, 1, 2, 3].map(step => <span key={step} className={step === onboardingStep ? "current" : ""} />)}</div>
           <strong>{settings.metadataLanguage === "arabic"
-            ? ["مرحبًا بك في قارئ المصحف", "افتح التفسير من الآية", "اقرأ بالطريقة التي تناسبك"][onboardingStep]
-            : ["Welcome to Quran Mushaf Reader", "Open explanation from an ayah", "Read in the way that suits you"][onboardingStep]}</strong>
+            ? ["مرحبًا بك في قارئ المصحف", "أين تفضّل أدوات التلاوة؟", "افتح التفسير من الآية", "اقرأ بالطريقة التي تناسبك"][onboardingStep]
+            : ["Welcome to Quran Mushaf Reader", "Where would you like the player?", "Open explanation from an ayah", "Read in the way that suits you"][onboardingStep]}</strong>
           <p>{settings.metadataLanguage === "arabic"
-            ? [isRustHost ? "استخدم زري البحث والاستماع في الشريط العلوي. افتح الخيارات للإعدادات وملء الشاشة والورد اليومي." : "اضغط «البحث والخيارات» بجانب اسم التطبيق لإظهار أدوات البحث والإعدادات والاستماع والورد اليومي.", "انقر بزر الفأرة الأيمن على أي آية لعرض خيارات التفسير والاستماع، وانقر على الآية نفسها مرة أخرى لإغلاق التفسير. استخدم مفتاحي السهم للتنقل بين الآيات أثناء فتح التفسير.", "ابدأ وردًا يوميًا وحدد هدفًا بالصفحات أو الدقائق. يمكنك إظهار المؤقت أو تفعيل تذكير يومي، واستخدام ملء الشاشة من زر ⛶ أو المفتاح F11."][onboardingStep]
-            : [isRustHost ? "Use Search and Listen in the top bar. Open Options for settings, full screen, and Daily reading." : "Select “Search & options” beside the app name to reveal search, settings, listening, and Daily reading tools.", "Right-click an ayah for tafsir and listening options. Right-click the same ayah again to close its explanation. Use the arrow keys to move between ayahs while the explanation is open.", "Start Daily reading with a page or minute goal. You can show a timer, enable a daily reminder, and use full screen with the ⛶ button or F11."][onboardingStep]}</p>
+            ? [isRustHost ? "استخدم زري البحث والاستماع في الشريط العلوي. افتح الخيارات للإعدادات وملء الشاشة والورد اليومي." : "اضغط «البحث والخيارات» بجانب اسم التطبيق لإظهار أدوات البحث والإعدادات والاستماع والورد اليومي.", "اختر الموضع الذي يناسبك أثناء الاستماع. يمكنك تغييره لاحقًا من الإعدادات.", "انقر بزر الفأرة الأيمن على أي آية لعرض خيارات التفسير والاستماع، وانقر على الآية نفسها مرة أخرى لإغلاق التفسير. استخدم مفتاحي السهم للتنقل بين الآيات أثناء فتح التفسير.", "ابدأ وردًا يوميًا وحدد هدفًا بالصفحات أو الدقائق. يمكنك إظهار المؤقت أو تفعيل تذكير يومي، واستخدام ملء الشاشة من زر ⛶ أو المفتاح F11."][onboardingStep]
+            : [isRustHost ? "Use Search and Listen in the top bar. Open Options for settings, full screen, and Daily reading." : "Select “Search & options” beside the app name to reveal search, settings, listening, and Daily reading tools.", "Choose a position for listening. You can change it later in Settings.", "Right-click an ayah for tafsir and listening options. Right-click the same ayah again to close its explanation. Use the arrow keys to move between ayahs while the explanation is open.", "Start Daily reading with a page or minute goal. You can show a timer, enable a daily reminder, and use full screen with the ⛶ button or F11."][onboardingStep]}</p>
+          {onboardingStep === 1 ? (
+            <fieldset className="readerTipsPlayerChoices">
+              <legend>{settings.metadataLanguage === "arabic" ? "موضع أدوات التلاوة" : "Player position"}</legend>
+              {(["bottom", "side"] as const).map(placement => (
+                <label key={placement} className="readerTipsPlayerChoice">
+                  <input type="radio" name="onboarding-player-position" value={placement}
+                    checked={settings.playerPlacement === placement}
+                    onChange={() => updateSettings({ playerPlacement: placement })} />
+                  <span className={`readerTipsPlayerPreview readerTipsPlayerPreview-${placement}`} aria-hidden="true"><span /><span /></span>
+                  <span className="readerTipsPlayerCopy">
+                    <strong>{placement === "bottom"
+                      ? (settings.metadataLanguage === "arabic" ? "أسفل الشاشة" : "Bottom")
+                      : (settings.metadataLanguage === "arabic" ? "بجانب الصفحات" : "Side")}</strong>
+                    <small>{placement === "bottom"
+                      ? (settings.metadataLanguage === "arabic" ? "تختفي تلقائيًا أثناء القراءة" : "Hides automatically while you read")
+                      : (settings.metadataLanguage === "arabic" ? "أدوات مدمجة بجانب المصحف" : "Compact controls beside the Mushaf")}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
           <div className="readerTipsActions">
             <button className="readerTipsSkip" onClick={dismissOnboarding}>{settings.metadataLanguage === "arabic" ? "تخطي" : "Skip"}</button>
             {onboardingStep > 0 ? <button onClick={() => setOnboardingStep(step => step - 1)}>{settings.metadataLanguage === "arabic" ? "السابق" : "Back"}</button> : null}
-            <button className="readerTipsPrimary" onClick={() => onboardingStep < 2 ? setOnboardingStep(step => step + 1) : dismissOnboarding()}>{onboardingStep < 2 ? (settings.metadataLanguage === "arabic" ? "التالي" : "Next") : (settings.metadataLanguage === "arabic" ? "ابدأ القراءة" : "Start reading")}</button>
+            <button className="readerTipsPrimary" onClick={() => onboardingStep < 3 ? setOnboardingStep(step => step + 1) : dismissOnboarding()}>{onboardingStep < 3 ? (settings.metadataLanguage === "arabic" ? "التالي" : "Next") : (settings.metadataLanguage === "arabic" ? "ابدأ القراءة" : "Start reading")}</button>
           </div>
         </aside>
       ) : null}
-      {isFullscreen && !tafsirSelection ? <nav className="fullscreenAccess" aria-label={settings.metadataLanguage === "arabic" ? "خيارات العرض" : "View options"}>
+      {isFullscreen ? <nav className="fullscreenAccess" dir={settings.metadataLanguage === "arabic" ? "rtl" : "ltr"} aria-label={settings.metadataLanguage === "arabic" ? "خيارات العرض" : "View options"}>
         <button type="button" aria-controls="reader-controls" aria-expanded={controlsVisible} onClick={() => controlsVisible ? hideControls() : revealControls(4000)}>{interfaceLabels.searchAndOptions}</button>
         <button type="button" onClick={toggleFullscreen}>{settings.metadataLanguage === "arabic" ? "إنهاء ملء الشاشة" : "Exit full screen"} <span aria-hidden="true">⤢</span></button>
+        <div id="fullscreen-listen-host" />
       </nav> : null}      {settings.hasChosenLanguage && !controlsVisible && (!isNativeHost && !isFullscreen) ? (
         <button
           className="readerControlsReveal"
@@ -2617,6 +2686,18 @@ export default function App() {
               <option value="gold">{settings.metadataLanguage === "arabic" ? "ذهبي" : "Gold"}</option>
             </select>
           </label>
+
+          <label className="settingGroup">
+            <span>{settings.metadataLanguage === "arabic" ? "موضع أدوات التلاوة" : "Player position"}</span>
+            <select aria-label={settings.metadataLanguage === "arabic" ? "موضع أدوات التلاوة" : "Player position"}
+              value={settings.playerPlacement} onChange={event => updateSettings({ playerPlacement: event.target.value === "side" ? "side" : "bottom" })}>
+              <option value="bottom">{settings.metadataLanguage === "arabic" ? "أسفل الشاشة (تختفي تلقائيًا)" : "Bottom (auto-hide)"}</option>
+              <option value="side">{settings.metadataLanguage === "arabic" ? "بجانب الصفحات" : "Side"}</option>
+            </select>
+          </label>
+          <button type="button" className="readerTipsReopen" onClick={() => {
+            setOnboardingStep(0); setShowReaderTips(true); setIsSettingsOpen(false);
+          }}>{settings.metadataLanguage === "arabic" ? "عرض التعريف بالتطبيق" : "Show introduction"}</button>
           <label className="settingToggle"><span>{settings.metadataLanguage === "arabic" ? "إطالة الحروف السياقية (اختياري)" : "Contextual letter elongation (optional)"}</span><input type="checkbox" checked={settings.contextualText} onChange={event => updateSettings({ contextualText: event.target.checked })} /></label>
           <label className="settingGroup tafsirTextSizeSetting">
             <span>{interfaceLabels.tafsirTextSize}</span>
@@ -3068,6 +3149,10 @@ export default function App() {
       ) : null}
 
       {data ? <ReadingTools listeningRequest={listeningRequest} language={settings.metadataLanguage} surahs={data.surahs}
+        onPlayerSpaceChange={setPlayerSpace}
+        playerPlacement={settings.playerPlacement} onPlayerSideSpaceChange={setPlayerSideSpace}
+        playerSuspended={isJumpOpen || isSettingsOpen || showReaderTips || !settings.hasChosenLanguage}
+        playerCompact={Boolean(panelSelection)} playerFullscreen={isFullscreen}
         integrateTitleBar={isRustHost && !isFullscreen} controlsEnabled={settings.hasChosenLanguage}
         dismissRequest={readingToolsDismiss}
         onBeforeOpen={() => { setIsJumpOpen(false); setIsSettingsOpen(false); setTafsirSelection(null); hideControls(); }}
@@ -3077,14 +3162,15 @@ export default function App() {
         onAyahChange={followRecitationAyah}
         enabled={settings.hasChosenLanguage && !isJumpOpen && !isSettingsOpen && !tafsirSelection} /> : null}
 
-      <div className="pageTurnPreviews" ref={pageTurnPreviewsRef} inert aria-hidden="true">
-        {areCurrentQpcPagesLoaded && !panelSelection && !reducedMotion ? (
-          <PageTurnPreviews pageNumbers={preloadQpcPageNumbers} cache={pageCache} renderPage={renderReaderPage} />
+      <div className="pageTurnPreviews" ref={pageTurnPreviewsRef} style={{ "--reader-fit-scale": previewScale } as CSSProperties} inert aria-hidden="true">
+        {areCurrentQpcPagesLoaded && previewFontsReady && !panelSelection && !reducedMotion ? (
+          <PageTurnPreviews pageNumbers={preloadQpcPageNumbers} cache={pageCache} renderPage={(page, prepared) => renderReaderPage(page, prepared, previewScale)} />
         ) : null}
       </div>
 
       <section
         className="readerViewport"
+        dir={settings.metadataLanguage === "arabic" ? "rtl" : "ltr"}
         aria-label={interfaceLabels.quranPages}
         ref={readerViewportRef}
         onFocusCapture={event => {
@@ -3117,7 +3203,12 @@ export default function App() {
           }
         }}
       >
-        {loadError ? <div className="loadState">{loadError}</div> : null}
+        {loadError ? <div className="loadState" role="alert" dir={settings.metadataLanguage === 'arabic' ? 'rtl' : 'ltr'}>
+          <p>{loadError === 'font'
+            ? settings.metadataLanguage === 'arabic' ? 'تعذر تحميل خط المصحف. أعد تحميل التطبيق.' : 'Could not load a required reader font. Please reload the app.'
+            : settings.metadataLanguage === 'arabic' ? 'تعذر فتح المصحف. حاول مجددًا.' : 'Could not open the Mushaf. Please try again.'}</p>
+          <button type="button" onClick={() => loadError === 'font' ? window.location.reload() : setStartupAttempt(attempt => attempt + 1)}>{loadError === 'font' ? settings.metadataLanguage === 'arabic' ? 'إعادة تحميل التطبيق' : 'Reload app' : interfaceLabels.retry}</button>
+        </div> : null}
         {(!data || !qpcData) && !loadError ? (
           <div className="loadState" role="status"><strong>Quran Mushaf Reader</strong><p dir={settings.metadataLanguage === "arabic" ? "rtl" : "ltr"}>{interfaceLabels.loadingMushaf}</p></div>
         ) : null}

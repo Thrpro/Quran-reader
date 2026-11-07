@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -95,6 +95,12 @@ export function TafsirPanel({
 }) {
 
   const panel = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    // Study owns focus after the ayah menu hands off. Preserve focus on its
+    // navigation controls when moving between ayahs; never return to the old
+    // reader word merely because the menu unmounted.
+    if (!closing && !panel.current?.contains(document.activeElement)) panel.current?.focus({ preventScroll: true });
+  }, [selection.surah, selection.ayah, closing]);
   const [installed, setInstalled] = useState<ExtraTafsirId[]>([]);
   const [packRevision, setPackRevision] = useState(0);
   useEffect(() => {
@@ -179,6 +185,7 @@ export function TafsirPanel({
   return (
     <aside
       ref={panel}
+      tabIndex={-1}
       className="tafsirPanel ayahStudyPanel"
       inert={closing}
       aria-hidden={closing || undefined}
