@@ -135,7 +135,7 @@ Found something that looks wrong in the text? Please [open an issue](https://git
 
 1. Download `QuranMushafReader-Setup-x64` from the latest [release](https://github.com/Thrpro/Quran-reader/releases).
 2. Run it. It installs for your Windows account only, so it doesn't ask for administrator rights.
-3. Open Quran Mushaf Reader from the Start menu, choose your language and start reading.
+3. Open Quran Mushaf Reader from the Start menu. A short tour walks you through the app itself, lighting up each part as it explains it; you can see it again from **Options → Take the tour**.
 
 Prefer not to install? Download the ZIP instead, extract it, and run `QuranMushaf.SlintReader.exe`.
 
@@ -148,7 +148,7 @@ Because the installer isn't code-signed yet, Windows may show "Windows protected
 <details>
 <summary><b>Does it work offline?</b></summary>
 
-Reading, search and all bundled tafsir work with no connection. Recitation streams when you ask for it, so listening needs internet.
+Reading, search and all bundled tafsir work with no connection. Recitation streams when you ask for it. To listen offline, open <b>Options → Download manager</b> (or press Ctrl+D) and download a surah with your chosen reciter first; downloads are listed there with their size and can be deleted.
 </details>
 
 <details>
@@ -166,7 +166,7 @@ It's built in native Rust rather than a browser engine. It takes about 90 MB of 
 <details>
 <summary><b>Page turns look wrong on my PC. What can I do?</b></summary>
 
-Turn on <b>Options → Use software rendering</b> and restart the app, then please <a href="https://github.com/Thrpro/Quran-reader/issues">tell us about your graphics card</a> so we can fix it.
+Start the app with <code>--renderer software</code> (for example, add it to the end of the shortcut's Target). It draws without the graphics card, which avoids most driver problems but makes page turns less smooth, then please <a href="https://github.com/Thrpro/Quran-reader/issues">tell us about your graphics card</a> so we can fix it.
 </details>
 
 ## Small and light, measured
@@ -185,7 +185,7 @@ Working-set memory on Windows 11 with a Ryzen 7 7735HS, in a maximized 1920×108
 
 - **Native, standard text:** 60 spread turns, measured after 10 seconds of idle.
 - **Native, contextual lettering:** 240 spread turns, measured after 10 seconds of idle. Memory was still rising slowly at the end of the run, by about 0.1 MiB per turn. Peak working set was 341 MiB.
-- **Native renderer:** GPU, which is the default. Page turns ran at up to 144 Hz on the display tested. With **Options → Use software rendering**, the same two runs on an earlier build measured 98 MiB and 187 MiB, with less smooth page turns.
+- **Native renderer:** GPU, which is the default. Page turns ran at up to 144 Hz on the display tested. With software rendering (`--renderer software`), the same two runs on an earlier build measured 98 MiB and 187 MiB, with less smooth page turns.
 - **WebView2 version:** 60 spread turns, measured after 15 seconds of idle, in headless Microsoft Edge rather than the installed WebView2 host. See [MEMORY-PERFORMANCE.md](MEMORY-PERFORMANCE.md).
 
 The two procedures differ, so treat this as a comparison of scale rather than an exact ratio. Your numbers will vary by hardware and window size.
@@ -198,7 +198,6 @@ The native version is a **preview**. It is close to the earlier WebView2 reader 
 
 Still in progress:
 - Page-turn animations on very large windows, such as maximized on a 4K display
-- Managing downloaded recitations for offline listening (available in the WebView2 version)
 - Screen-reader and accessibility testing
 - Testing across more GPUs, displays and mixed-DPI setups
 
@@ -238,7 +237,9 @@ With thanks to the teams behind [Quranic Universal Library](https://qul.tarteel.
 
 This project was developed with substantial help from AI coding tools for the application software and interface. The Quran content is not AI-generated, as described above.
 
-The **application code** is under the [MIT License](LICENSE). This doesn't relicense the bundled Quran text, fonts, translations, tafsir or other third-party material, which stay under their providers' terms. The interface uses [Slint](https://slint.dev) under its royalty-free license, with attribution in the app's About screen.
+The **application code** is under the [MIT License](LICENSE). This doesn't relicense the bundled Quran text, fonts, translations, tafsir or other third-party material, which stay under their providers' terms. The interface uses [Slint](https://slint.dev) under its royalty-free license.
+
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
 
 You're free to build on this code. If you distribute a modified version, please identify it as unofficial, so that readers always know which builds carry this project's integrity checks.
 

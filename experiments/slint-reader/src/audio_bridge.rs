@@ -3,15 +3,19 @@
 //! Construct and use on the UI thread; its event loop pumps the WinRT apartment.
 use crate::{
     audio::{Audio, ListeningRange, RECITERS, Transport},
-    audio_cache::{AudioCache, COUNTS},
+    audio_cache::{AudioCache, COUNTS, Event as ClipEvent, Job as ClipJob},
     data::Result,
     listening_layout,
     timed_audio::Recording,
+    timed_store::{Event as RecordingEvent, Job as RecordingJob},
 };
 use std::{
+    fs,
     marker::PhantomData,
-    path::PathBuf,
+    os::windows::fs::MetadataExt,
+    path::{Path, PathBuf},
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use windows::Win32::System::WinRT::{
@@ -44,7 +48,8 @@ pub struct AudioSnapshot {
 struct Request {
     reciter: usize,
     key: (u32, u32),
-    only_ayah: bool,
+    /// Last verse of this surah to play; None plays to the end of the surah.
+    last: Option<u32>,
 }
 
 struct PendingSeek {
@@ -78,9 +83,39 @@ impl Drop for Apartment {
     }
 }
 
-/// Lazy: no player, cache, workers or profile directory exists before Play.
+/// A surah saved for offline listening. Reciters with a verified continuous
+/// recording keep that recording (with its ayah timing); others keep ayah clips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DownloadedSurah {
+    pub reciter: usize,
+    pub surah: u32,
+    pub bytes: u64,
+    pub continuous: bool,
+    /// Every file its record names is present and non-empty. Playback still
+    /// verifies each file's hash; this only keeps the list honest.
+    pub complete: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum DownloadNotice {
+    Progress(u32),
+    Done,
+    Failed(String),
+    Cancelled,
+}
+
+enum DownloadJob {
+    Clips(ClipJob),
+    Recording(RecordingJob),
+}
+
+/// Lazy: no player, cache, workers or profile directory exists before Play
+/// or a download.
 pub struct AudioBridge {
     audio: Option<Audio>,
+    cache: Option<Arc<AudioCache>>,
+    download: Option<(DownloadJob, usize, u32)>,
+    download_generation: u64,
     profile_root: PathBuf,
     request: Option<Request>,
     last_transport: Option<Transport>,
@@ -99,6 +134,9 @@ impl AudioBridge {
     pub fn new(profile_root: PathBuf) -> Self {
         Self {
             audio: None,
+            cache: None,
+            download: None,
+            download_generation: 0,
             profile_root,
             request: None,
             last_transport: None,
@@ -118,6 +156,7 @@ impl AudioBridge {
         }
         let apartment = Apartment::initialize()?;
         let cache = AudioCache::new(self.profile_root.clone())?;
+        self.cache = Some(cache.clone());
         let audio = Audio::with_cache(cache)?;
         self._apartment = Some(apartment);
         self.audio = Some(audio);
@@ -131,11 +170,11 @@ impl AudioBridge {
         &mut self,
         reciter: usize,
         key: (u32, u32),
-        only_ayah: bool,
+        last: Option<u32>,
         rate: f64,
         volume: f64,
     ) -> Result<()> {
-        let range = checked_range(reciter, key, only_ayah)?;
+        let range = checked_range(reciter, key, last)?;
         checked_controls(rate, volume)?;
         self.initialize()?;
         let audio = self.audio.as_mut().ok_or("Audio player is unavailable")?;
@@ -144,11 +183,7 @@ impl AudioBridge {
         } else {
             audio.play_range(range, rate, volume)?;
         }
-        self.request = Some(Request {
-            reciter,
-            key,
-            only_ayah,
-        });
+        self.request = Some(Request { reciter, key, last });
         self.rate = rate;
         self.volume = volume;
         self.last_transport = None;
@@ -156,6 +191,23 @@ impl AudioBridge {
         self.last_error = None;
         self.pending_seek = None;
         Ok(())
+    }
+
+    /// The reciter and surah being recited, or last recited.
+    pub fn current_surah(&self) -> Option<(usize, u32)> {
+        self.request.map(|request| (request.reciter, request.key.0))
+    }
+
+    /// The reciter and surah of a recitation that has played to its end.
+    pub fn finished(&self) -> Option<(usize, u32)> {
+        if self.last_error.is_some() || self.pending_seek.is_some() {
+            return None;
+        }
+        let audio = self.audio.as_ref()?;
+        if !(audio.has_session() && audio.completed()) {
+            return None;
+        }
+        self.request.map(|request| (request.reciter, request.key.0))
     }
 
     pub fn toggle(&mut self) -> Result<()> {
@@ -173,7 +225,7 @@ impl AudioBridge {
             return self.play(
                 request.reciter,
                 request.key,
-                request.only_ayah,
+                request.last,
                 self.rate,
                 self.volume,
             );
@@ -183,6 +235,199 @@ impl AudioBridge {
             .filter(|audio| audio.has_session())
             .ok_or("Choose a verse to play first")?
             .toggle()
+    }
+
+    /// Save one surah for offline listening with the native, validated stores:
+    /// the continuous recording where one exists, otherwise every ayah clip.
+    pub fn start_download(&mut self, reciter: usize, surah: u32) -> Result<()> {
+        if reciter >= RECITERS.len() || !(1..=114).contains(&surah) {
+            return Err("Invalid surah or reciter".into());
+        }
+        self.initialize()?;
+        // Dropping a previous job cancels it.
+        self.download = None;
+        self.download_generation = self.download_generation.wrapping_add(1);
+        let generation = self.download_generation;
+        let cache = self
+            .cache
+            .clone()
+            .ok_or("Recitation storage is unavailable")?;
+        let job = if Recording::for_reciter(reciter).is_some() {
+            DownloadJob::Recording(cache.timed_store()?.prepare(reciter, surah, generation)?)
+        } else {
+            DownloadJob::Clips(cache.download_surah(reciter, surah, generation)?)
+        };
+        self.download = Some((job, reciter, surah));
+        Ok(())
+    }
+
+    pub fn cancel_download(&mut self) {
+        self.download = None;
+    }
+
+    pub fn downloading(&self) -> Option<(usize, u32)> {
+        self.download
+            .as_ref()
+            .map(|(_, reciter, surah)| (*reciter, *surah))
+    }
+
+    /// The latest state of the running download, if anything changed.
+    pub fn poll_download(&mut self) -> Option<DownloadNotice> {
+        let generation = self.download_generation;
+        let mut latest = None;
+        let mut finished = false;
+        match &self.download {
+            None => return None,
+            Some((DownloadJob::Clips(job), ..)) => {
+                while let Some(event) = job.try_recv() {
+                    match event {
+                        ClipEvent::Progress {
+                            generation: g,
+                            percent,
+                            ..
+                        } if g == generation => {
+                            latest = Some(DownloadNotice::Progress(percent.min(100)));
+                        }
+                        ClipEvent::Complete { generation: g, .. } if g == generation => {
+                            latest = Some(DownloadNotice::Done);
+                            finished = true;
+                        }
+                        ClipEvent::Failed {
+                            generation: g,
+                            message,
+                        } if g == generation => {
+                            latest = Some(DownloadNotice::Failed(message));
+                            finished = true;
+                        }
+                        ClipEvent::Cancelled { generation: g } if g == generation => {
+                            latest = Some(DownloadNotice::Cancelled);
+                            finished = true;
+                        }
+                        _ => {}
+                    }
+                    if finished {
+                        break;
+                    }
+                }
+            }
+            Some((DownloadJob::Recording(job), ..)) => {
+                while let Some(event) = job.try_recv() {
+                    match event {
+                        RecordingEvent::Progress(bytes, expected) => {
+                            let percent = expected.filter(|total| *total > 0).map_or(0, |total| {
+                                (bytes.saturating_mul(100) / total).min(99) as u32
+                            });
+                            latest = Some(DownloadNotice::Progress(percent));
+                        }
+                        RecordingEvent::Ready(ready) if ready.generation == generation => {
+                            latest = Some(DownloadNotice::Done);
+                            finished = true;
+                        }
+                        RecordingEvent::Failed(g, message) if g == generation => {
+                            latest = Some(DownloadNotice::Failed(message));
+                            finished = true;
+                        }
+                        _ => {}
+                    }
+                    if finished {
+                        break;
+                    }
+                }
+            }
+        }
+        if finished {
+            self.download = None;
+        }
+        latest
+    }
+
+    /// Surahs saved for offline listening, read from the native stores' own
+    /// folder names. Partial or unknown folders are ignored.
+    pub fn downloaded(&self) -> Vec<DownloadedSurah> {
+        let store = self.profile_root.join("AudioStore");
+        let mut found = Vec::new();
+        for (folder, continuous) in [
+            (store.join("Downloads"), false),
+            (store.join("Continuous"), true),
+        ] {
+            let Ok(entries) = fs::read_dir(&folder) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let parsed = if continuous {
+                    parse_recording_folder(&name)
+                } else {
+                    parse_clip_folder(&name)
+                };
+                let Some((reciter, surah)) = parsed else {
+                    continue;
+                };
+                let path = entry.path();
+                let marker = if continuous {
+                    "receipt.json"
+                } else {
+                    "surah.json"
+                };
+                if plain_directory(&path) && path.join(marker).is_file() {
+                    found.push(DownloadedSurah {
+                        reciter,
+                        surah,
+                        bytes: folder_bytes(&path),
+                        continuous,
+                        complete: download_complete(&path, continuous),
+                    });
+                }
+            }
+        }
+        found.sort_by_key(|d| (d.surah, d.reciter, d.continuous));
+        found
+    }
+
+    /// Remove one saved surah. Only plain files directly inside its exactly
+    /// named folder are removed, and never while it downloads or plays.
+    pub fn delete_download(&mut self, item: DownloadedSurah) -> Result<()> {
+        if self.downloading() == Some((item.reciter, item.surah)) {
+            return Err("This surah is still downloading.".into());
+        }
+        if self
+            .request
+            .is_some_and(|r| r.reciter == item.reciter && r.key.0 == item.surah)
+            && self.audio.as_ref().is_some_and(Audio::has_session)
+        {
+            return Err("Stop this recitation before deleting its download.".into());
+        }
+        let store = self.profile_root.join("AudioStore");
+        let folder = if item.continuous {
+            let recording = Recording::for_reciter(item.reciter).ok_or("Unknown recording")?;
+            store
+                .join("Continuous")
+                .join(format!("r{}-s{:03}", recording.read, item.surah))
+        } else {
+            store.join("Downloads").join(format!(
+                "reciter-{:02}-surah-{:03}",
+                item.reciter, item.surah
+            ))
+        };
+        if !plain_directory(&folder) {
+            return Err("This download was not found.".into());
+        }
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&folder)? {
+            let entry = entry?;
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if !metadata.is_file() || metadata.file_attributes() & 0x400 != 0 {
+                return Err(
+                    "This download folder contains unexpected items and was left unchanged.".into(),
+                );
+            }
+            files.push(entry.path());
+        }
+        for file in files {
+            fs::remove_file(file)?;
+        }
+        fs::remove_dir(&folder)?;
+        Ok(())
     }
 
     pub fn stop(&mut self) -> Result<()> {
@@ -271,7 +516,7 @@ impl AudioBridge {
 
     fn reopen_for_seek(&mut self, target_ms: u64) -> Result<bool> {
         let request = self.request.ok_or("Choose a verse to play first")?;
-        let range = checked_range(request.reciter, (request.key.0, 1), false)?;
+        let range = checked_range(request.reciter, (request.key.0, 1), request.last)?;
         let audio = self.audio.as_mut().ok_or("Audio player is unavailable")?;
         let paused = audio.is_paused();
         let result = (|| -> Result<()> {
@@ -288,7 +533,7 @@ impl AudioBridge {
         self.request = Some(Request {
             reciter: request.reciter,
             key: (request.key.0, 1),
-            only_ayah: false,
+            last: request.last,
         });
         self.last_error = None;
         self.pending_seek = Some(PendingSeek {
@@ -492,7 +737,35 @@ impl Drop for AudioBridge {
     }
 }
 
-fn checked_range(reciter: usize, key: (u32, u32), only_ayah: bool) -> Result<ListeningRange> {
+/// Whether a saved surah's record and the files it names are all there.
+fn download_complete(folder: &Path, continuous: bool) -> bool {
+    let present = |name: &str| {
+        !name.is_empty()
+            && !name.contains(['/', '\\'])
+            && fs::metadata(folder.join(name)).is_ok_and(|m| m.is_file() && m.len() > 0)
+    };
+    let record = |name: &str| -> Option<serde_json::Value> {
+        let bytes = fs::read(folder.join(name)).ok()?;
+        (bytes.len() <= 256 * 1024).then_some(())?;
+        serde_json::from_slice(&bytes).ok()
+    };
+    if continuous {
+        record("receipt.json").is_some() && present("audio.mp3") && present("timings.json")
+    } else {
+        record("surah.json")
+            .and_then(|manifest| manifest.get("clips")?.as_array().cloned())
+            .is_some_and(|clips| {
+                !clips.is_empty()
+                    && clips.iter().all(|clip| {
+                        clip.get("file")
+                            .and_then(|f| f.as_str())
+                            .is_some_and(present)
+                    })
+            })
+    }
+}
+
+fn checked_range(reciter: usize, key: (u32, u32), last: Option<u32>) -> Result<ListeningRange> {
     let count = key
         .0
         .checked_sub(1)
@@ -507,7 +780,11 @@ fn checked_range(reciter: usize, key: (u32, u32), only_ayah: bool) -> Result<Lis
         reciter,
         surah: key.0,
         first: key.1,
-        last: if only_ayah { key.1 } else { count },
+        last: match last {
+            Some(last) if (key.1..=count).contains(&last) => last,
+            Some(_) => return Err("Invalid recitation range".into()),
+            None => count,
+        },
         count,
     })
 }
@@ -549,12 +826,27 @@ fn clock_fields(transport: Option<Transport>, arabic: bool) -> (u64, u64, u64, u
         transport.offset_ms,
         end,
         slider,
-        listening_layout::progress_label(
-            transport.continuous,
-            arabic,
-            &listening_layout::clock(position),
-            &listening_layout::clock(transport.duration_ms),
-        ),
+        if arabic {
+            // Read right to left: the time played first, then the length,
+            // kept as one left-to-right run so the digits stay in place.
+            format!(
+                "{}\u{2066}{} / {}\u{2069}",
+                if transport.continuous {
+                    ""
+                } else {
+                    "الآية "
+                },
+                listening_layout::clock(transport.duration_ms),
+                listening_layout::clock(position)
+            )
+        } else {
+            listening_layout::progress_label(
+                transport.continuous,
+                arabic,
+                &listening_layout::clock(position),
+                &listening_layout::clock(transport.duration_ms),
+            )
+        },
     )
 }
 
@@ -564,14 +856,17 @@ mod tests {
 
     #[test]
     fn play_range_uses_native_chapter_boundaries() {
-        let range = checked_range(0, (2, 145), false).unwrap();
+        let range = checked_range(0, (2, 145), None).unwrap();
         assert_eq!((range.first, range.last, range.count), (145, 286, 286));
-        let range = checked_range(5, (112, 2), true).unwrap();
+        let range = checked_range(5, (112, 2), Some(2)).unwrap();
         assert_eq!((range.first, range.last, range.count), (2, 2, 4));
         for key in [(0, 1), (115, 1), (1, 0), (1, 8), (112, 5)] {
-            assert!(checked_range(0, key, false).is_err());
+            assert!(checked_range(0, key, None).is_err());
         }
-        assert!(checked_range(RECITERS.len(), (1, 1), false).is_err());
+        assert!(checked_range(RECITERS.len(), (1, 1), None).is_err());
+        assert!(checked_range(0, (2, 10), Some(9)).is_err());
+        assert!(checked_range(0, (2, 10), Some(287)).is_err());
+        assert_eq!(checked_range(0, (2, 10), Some(20)).unwrap().last, 20);
     }
 
     #[test]
@@ -610,5 +905,77 @@ mod tests {
         assert!(checked_controls(1., -0.1).is_err());
         assert!(checked_controls(0.5, 0.).is_ok());
         assert!(checked_controls(2., 1.).is_ok());
+    }
+}
+
+fn parse_clip_folder(name: &str) -> Option<(usize, u32)> {
+    let rest = name.strip_prefix("reciter-")?;
+    let (reciter, surah) = rest.split_once("-surah-")?;
+    if reciter.len() != 2
+        || surah.len() != 3
+        || !reciter
+            .bytes()
+            .chain(surah.bytes())
+            .all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let (reciter, surah) = (reciter.parse::<usize>().ok()?, surah.parse::<u32>().ok()?);
+    (reciter < RECITERS.len() && (1..=114).contains(&surah)).then_some((reciter, surah))
+}
+
+fn parse_recording_folder(name: &str) -> Option<(usize, u32)> {
+    let rest = name.strip_prefix('r')?;
+    let (read, surah) = rest.split_once("-s")?;
+    if read.is_empty()
+        || surah.len() != 3
+        || !read
+            .bytes()
+            .chain(surah.bytes())
+            .all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let (read, surah) = (read.parse::<u32>().ok()?, surah.parse::<u32>().ok()?);
+    let reciter = (0..RECITERS.len())
+        .find(|r| Recording::for_reciter(*r).is_some_and(|rec| rec.read == read))?;
+    (1..=114).contains(&surah).then_some((reciter, surah))
+}
+
+/// A real directory, not a link or junction.
+fn plain_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.file_attributes() & 0x400 == 0)
+}
+
+fn folder_bytes(path: &Path) -> u64 {
+    fs::read_dir(path)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| fs::symlink_metadata(e.path()).ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+    #[test]
+    fn download_folder_names_parse_only_exact_native_forms() {
+        assert_eq!(parse_clip_folder("reciter-01-surah-036"), Some((1, 36)));
+        assert_eq!(parse_clip_folder("reciter-1-surah-036"), None);
+        assert_eq!(parse_clip_folder("reciter-01-surah-115"), None);
+        assert_eq!(parse_clip_folder(".reciter-01-surah-036-7.partial"), None);
+        assert_eq!(parse_clip_folder("reciter-99-surah-001"), None);
+        let read = Recording::for_reciter(0).unwrap().read;
+        assert_eq!(
+            parse_recording_folder(&format!("r{read}-s018")),
+            Some((0, 18))
+        );
+        assert_eq!(parse_recording_folder(&format!("r{read}-s18")), None);
+        assert_eq!(parse_recording_folder("r1-s018"), None);
     }
 }

@@ -70,6 +70,7 @@ mod reader;
 #[allow(clippy::collapsible_if)]
 #[path = "../../../windows/QuranMushaf.Native/src/render.rs"]
 mod render;
+mod shortcuts;
 mod turn_queue;
 pub(crate) use reader::bundled_only as tafsir_library;
 
@@ -117,6 +118,7 @@ enum Task {
     Hover(i32, i32, f32, f32),
     Resolve(i32, (u32, u32), i32, bool, ResolveKind),
     Prefetch(i32, View),
+    Sections,
 }
 #[derive(Clone, Copy)]
 enum PickKind {
@@ -140,6 +142,7 @@ struct Pending {
     pick: Option<(i32, f32, f32, PickKind)>,
     hover: Option<(i32, i32, f32, f32)>,
     resolve: Option<PendingResolve>,
+    sections: bool,
     stop: bool,
     prefetch: std::collections::VecDeque<(i32, View)>,
 }
@@ -161,6 +164,7 @@ impl Queue {
                 Task::Resolve(id, key, step, arabic, kind) => {
                     pending.resolve = Some((id, key, step, arabic, kind))
                 }
+                Task::Sections => pending.sections = true,
                 Task::Prefetch(id, view) => {
                     if pending.prefetch.len() < 2 {
                         pending.prefetch.push_back((id, view));
@@ -193,6 +197,11 @@ impl Queue {
             }
             if let Some((id, view)) = p.prefetch.pop_front() {
                 return Some(Task::Prefetch(id, view));
+            }
+            // Section lists and page ends are only needed later: never before
+            // the first page is drawn.
+            if std::mem::take(&mut p.sections) {
+                return Some(Task::Sections);
             }
             p = self.wake.wait(p).ok()?;
         }
@@ -235,6 +244,8 @@ struct RenderOutput {
     navigation: bool,
     prefetched: bool,
 }
+/// Juz, hizb and rub starts, and the last verse of each page.
+type SectionData = ([Vec<(u32, u32)>; 3], Vec<(u32, u32)>);
 enum Output {
     Motion(i32, u32, f32, bool, page_animation::Surface, f64),
     Render(i32, std::result::Result<RenderOutput, String>),
@@ -244,6 +255,7 @@ enum Output {
     Resolve(i32, ResolveKind, std::result::Result<Verse, String>),
     Fatal(String),
     Prefetched(i32, Vec<u32>, usize),
+    Sections(std::result::Result<SectionData, String>),
 }
 struct Worker {
     queue: Arc<Queue>,
@@ -423,6 +435,12 @@ fn start_worker(root: PathBuf, ui: slint::Weak<ReaderWindow>) -> (Worker, mpsc::
                     }
                     Output::Render(request.generation, result)
                 }
+                Task::Sections => Output::Sections(
+                    engine
+                        .section_starts()
+                        .and_then(|sections| Ok((sections, engine.page_last_verses()?)))
+                        .map_err(|e| e.to_string()),
+                ),
                 Task::Search(id, query, arabic, mode) => Output::Search(
                     id,
                     engine
@@ -545,6 +563,13 @@ struct State {
     recitation: Option<(u32, u32)>,
     opening: Option<u32>,
     surahs: Vec<data::Surah>,
+    section_pages: [Vec<(u32, u32)>; 3],
+    /// An ayah opened from search: highlighted for a while, without tafsir.
+    quiet_selection: Option<(u32, u32)>,
+    /// The last verse on each page, once the worker has read it.
+    pub page_last: Vec<(u32, u32)>,
+    /// The current shortcut for each of shortcuts::ACTIONS.
+    pub shortcuts: [String; 7],
 }
 fn hover_view_matches(ui: &ReaderWindow, state: &State) -> bool {
     state.generation == state.committed
@@ -895,6 +920,37 @@ fn clear_outside_frame(
 
 fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, output: Output) {
     match output {
+        Output::Sections(result) => match result {
+            Ok((sections, page_last)) => {
+                state.borrow_mut().page_last = page_last;
+                show_current_surah(ui, state);
+                let choices = |arabic: bool| {
+                    let rows = |list: &Vec<(u32, u32)>, en: &str, ar: &str| {
+                        let rows: Vec<slint::SharedString> = list
+                            .iter()
+                            .map(|(n, page)| {
+                                if arabic {
+                                    format!("{ar} {n} · الصفحة {page}")
+                                } else {
+                                    format!("{en} {n} · Page {page}")
+                                }
+                                .into()
+                            })
+                            .collect();
+                        ModelRc::new(VecModel::from(rows))
+                    };
+                    SectionChoices {
+                        juz: rows(&sections[0], "Juz", "الجزء"),
+                        hizb: rows(&sections[1], "Hizb", "الحزب"),
+                        rub: rows(&sections[2], "Rub", "الربع"),
+                    }
+                };
+                ui.set_sections_en(choices(false));
+                ui.set_sections_ar(choices(true));
+                state.borrow_mut().section_pages = sections;
+            }
+            Err(error) => ui.set_render_status(error.into()),
+        },
         Output::Prefetched(id, pages, bytes) => {
             let mut s = state.borrow_mut();
             if id == s.generation {
@@ -1016,6 +1072,7 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
             ui.set_image_y(r.source.y);
             ui.set_image_w(r.source.w);
             ui.set_image_h(r.source.h);
+            ui.invoke_raster_applied();
             ui.set_book_x(r.book_bounds.x - r.source.x);
             ui.set_book_y(r.book_bounds.y - r.source.y);
             ui.set_book_w(r.book_bounds.w);
@@ -1042,6 +1099,7 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 }
                 .into(),
             );
+            show_current_surah(ui, state);
             let (right, left) = data::spread(output.page);
             ui.set_label(
                 if r.single_page && ui.get_arabic() {
@@ -1056,8 +1114,14 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 .into(),
             );
             if let Some((title, body)) = output.study {
-                ui.set_study_title(title.into());
-                ui.set_study_body(body.into());
+                let quiet = {
+                    let s = state.borrow();
+                    s.quiet_selection.is_some() && s.quiet_selection == s.selection
+                };
+                if !quiet || ui.get_panel() == "study" {
+                    ui.set_study_title(title.into());
+                    ui.set_study_body(body.into());
+                }
             }
             if !native_turn {
                 next_queued_turn(ui, state);
@@ -1134,6 +1198,7 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 Ok(Some(verse)) => match kind {
                     PickKind::Study => {
                         ui.set_follow_recitation(false);
+                        state.borrow_mut().quiet_selection = None;
                         state.borrow_mut().selection = Some(verse.key);
                         state.borrow_mut().selection_page = verse.page;
                         ui.set_panel("study".into());
@@ -1221,6 +1286,7 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                         ResolveKind::Recitation => state.borrow().selection,
                     };
                     if matches!(kind, ResolveKind::Study) {
+                        state.borrow_mut().quiet_selection = None;
                         ui.set_panel("study".into());
                     }
                     set_page(ui, state, queue, verse.page, selection);
@@ -1231,6 +1297,16 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
     }
 }
 
+/// The surah being read, marked in the search list: the surah of the last
+/// verse on the page shown first.
+fn show_current_surah(ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
+    let s = state.borrow();
+    if let Some(&(surah, _)) = s.page_last.get(s.page.saturating_sub(1) as usize)
+        && surah > 0
+    {
+        ui.set_current_surah(surah as i32);
+    }
+}
 fn image_geometry(ui: &ReaderWindow) -> [f32; 8] {
     [
         ui.get_image_x(),
@@ -2790,7 +2866,7 @@ fn run() -> Result<()> {
     // Software rendering held a maximized fold under 60 Hz on the test PC, and
     // the GPU kept settled native pixels identical. "skia" falls back to
     // software by itself when no GPU surface can start, and this override
-    // remains for drivers that start but misbehave.
+    // remains, as a launch option only, for drivers that start but misbehave.
     let software_rendering = match args
         .iter()
         .position(|arg| arg == "--renderer")
@@ -2799,7 +2875,7 @@ fn run() -> Result<()> {
         Some(Some("software")) => true,
         Some(Some("gpu")) => false,
         Some(_) => return Err("--renderer must be gpu or software".into()),
-        None => preferences::saved_software_rendering(&profile_directory),
+        None => false,
     };
     // For comparing turn speeds without a rebuild, e.g. `--turn-ms 285`.
     if let Some(i) = args.iter().position(|arg| arg == "--turn-ms") {
@@ -2835,7 +2911,6 @@ fn run() -> Result<()> {
             back_angle: scene.back[2],
         }
     });
-    let about = ReaderAbout::new()?;
     let resource_directory = resource_root()?;
     let controller = Rc::new(controls::Controller::open(
         &ui,
@@ -2928,40 +3003,57 @@ fn run() -> Result<()> {
                 && key.state == winit::event::ElementState::Pressed
                 && !key.repeat
                 && let Some(ui) = weak.upgrade()
-                && ui.get_onboarding_complete()
             {
                 use winit::keyboard::{KeyCode, PhysicalKey};
-                let ctrl = modifiers.get().control_key()
-                    && !modifiers.get().alt_key()
-                    && !modifiers.get().super_key()
-                    && !modifiers.get().shift_key();
-                let code = key.physical_key;
-                let search = [KeyCode::KeyF, KeyCode::KeyK, KeyCode::Slash]
-                    [ui.get_search_shortcut().clamp(0, 2) as usize];
-                let listen =
-                    [KeyCode::KeyL, KeyCode::KeyP][ui.get_listen_shortcut().clamp(0, 1) as usize];
-                let options =
-                    [KeyCode::Comma, KeyCode::KeyO][ui.get_options_shortcut().clamp(0, 1) as usize];
-                if ctrl && code == PhysicalKey::Code(search) {
-                    ui.invoke_open_search();
+                let PhysicalKey::Code(code) = key.physical_key else {
+                    return EventResult::Propagate;
+                };
+                let combo = shortcuts::combo(modifiers.get(), code);
+                // Recording a new shortcut in Options takes the next key press.
+                let capturing = ui.get_shortcut_capture();
+                if capturing >= 0 {
+                    match code {
+                        KeyCode::Escape => ui.set_shortcut_capture(-1),
+                        KeyCode::Backspace | KeyCode::Delete => {
+                            ui.invoke_shortcut_captured(capturing, "".into())
+                        }
+                        _ => match combo {
+                            Some(combo) => ui.invoke_shortcut_captured(capturing, combo.into()),
+                            // A modifier on its own: keep waiting for the key.
+                            None if matches!(
+                                code,
+                                KeyCode::ControlLeft
+                                    | KeyCode::ControlRight
+                                    | KeyCode::ShiftLeft
+                                    | KeyCode::ShiftRight
+                                    | KeyCode::AltLeft
+                                    | KeyCode::AltRight
+                            ) => {}
+                            None => ui.set_shortcut_status(
+                                if ui.get_arabic() {
+                                    "استخدم Ctrl أو Alt مع مفتاح، أو أحد مفاتيح F."
+                                } else {
+                                    "Use Ctrl or Alt with a key, or a function key."
+                                }
+                                .into(),
+                            ),
+                        },
+                    }
                     return EventResult::PreventDefault;
                 }
-                if ctrl && code == PhysicalKey::Code(listen) {
-                    ui.set_panel("listen".into());
-                    return EventResult::PreventDefault;
+                let action = combo
+                    .and_then(|combo| state.borrow().shortcuts.iter().position(|s| *s == combo));
+                match action {
+                    Some(0) => ui.invoke_open_search(),
+                    Some(1) => ui.set_panel("listen".into()),
+                    Some(2) => ui.set_panel("settings".into()),
+                    Some(3) => ui.set_panel("downloads".into()),
+                    Some(4) => ui.set_panel("bookmarks".into()),
+                    Some(5) if ui.get_audio_active() => ui.invoke_audio_toggle(),
+                    Some(6) => ui.invoke_fullscreen_requested(),
+                    _ => return EventResult::Propagate,
                 }
-                if ctrl && code == PhysicalKey::Code(options) {
-                    ui.set_panel("settings".into());
-                    return EventResult::PreventDefault;
-                }
-                if ctrl && code == PhysicalKey::Code(KeyCode::Space) && ui.get_audio_active() {
-                    ui.invoke_audio_toggle();
-                    return EventResult::PreventDefault;
-                }
-                if code == PhysicalKey::Code(KeyCode::F11) {
-                    ui.invoke_fullscreen_requested();
-                    return EventResult::PreventDefault;
-                }
+                return EventResult::PreventDefault;
             }
             if matches!(
                 event,
@@ -3184,6 +3276,45 @@ fn run() -> Result<()> {
         let state = state.clone();
         let queue = queue.clone();
         let weak = ui.as_weak();
+        {
+            // Section pickers and page ends are read once, early.
+            queue.push(Task::Sections);
+            let queue = queue.clone();
+            ui.on_sections_needed(move || queue.push(Task::Sections));
+        }
+        {
+            let state = state.clone();
+            let queue = queue.clone();
+            let weak = weak.clone();
+            ui.on_go_section(move |kind, index| {
+                if let Some(ui) = weak.upgrade() {
+                    let page = usize::try_from(kind)
+                        .ok()
+                        .zip(usize::try_from(index).ok())
+                        .and_then(|(k, i)| state.borrow().section_pages.get(k)?.get(i).copied());
+                    if let Some((_, page)) = page {
+                        set_page(&ui, &state, &queue, page, None);
+                    }
+                }
+            });
+        }
+        {
+            let state = state.clone();
+            let queue = queue.clone();
+            let weak = weak.clone();
+            ui.on_jump_page(move |value| {
+                let Some(ui) = weak.upgrade() else {
+                    return false;
+                };
+                match page_number(&value) {
+                    Some(page) => {
+                        set_page(&ui, &state, &queue, page, None);
+                        true
+                    }
+                    None => false,
+                }
+            });
+        }
         ui.on_go_page(move |value| {
             if let Some(ui) = weak.upgrade() {
                 if let Some(page) = page_number(&value) {
@@ -3273,6 +3404,7 @@ fn run() -> Result<()> {
         let state = state.clone();
         let queue = queue.clone();
         let weak = ui.as_weak();
+        let highlight_timer = Rc::new(slint::Timer::default());
         ui.on_choose_result(move |index| {
             if let Some(ui) = weak.upgrade() {
                 if ui.get_search_busy() {
@@ -3282,7 +3414,37 @@ fn run() -> Result<()> {
                     .ok()
                     .and_then(|i| state.borrow().hits.get(i).cloned());
                 if let Some(hit) = hit {
+                    state.borrow_mut().quiet_selection = hit.key;
                     set_page(&ui, &state, &queue, hit.page, hit.key);
+                    if let Some(key) = hit.key {
+                        // Show where the ayah is for ten seconds, then clear
+                        // the highlight unless the reader has moved on or
+                        // opened its tafsir.
+                        let weak = weak.clone();
+                        let state = state.clone();
+                        let queue = queue.clone();
+                        highlight_timer.start(
+                            slint::TimerMode::SingleShot,
+                            Duration::from_secs(10),
+                            move || {
+                                if let Some(ui) = weak.upgrade() {
+                                    let clear = {
+                                        let s = state.borrow();
+                                        s.quiet_selection == Some(key) && s.selection == Some(key)
+                                    };
+                                    if clear && ui.get_panel() != "study" {
+                                        {
+                                            let mut s = state.borrow_mut();
+                                            s.quiet_selection = None;
+                                            s.selection = None;
+                                            s.selection_page = 0;
+                                        }
+                                        request_render(&ui, &state, &queue);
+                                    }
+                                }
+                            },
+                        );
+                    }
                     return true;
                 }
             }
@@ -3397,7 +3559,10 @@ fn run() -> Result<()> {
                                 state.borrow_mut().selection = None;
                                 ui.set_study_body("".into());
                             }
-                            request_render(&ui, &state, &queue);
+                            // A gliding book requests its own render when it lands.
+                            if !ui.get_book_sliding() {
+                                request_render(&ui, &state, &queue);
+                            }
                         }
                     },
                 );
@@ -3406,19 +3571,7 @@ fn run() -> Result<()> {
         });
     }
     {
-        let weak = about.as_weak();
-        ui.on_about_requested(move || {
-            if let Some(about) = weak.upgrade() {
-                let _ = about.show();
-            }
-        });
-    }
-    {
-        let weak = about.as_weak();
         ui.window().on_close_requested(move || {
-            if let Some(about) = weak.upgrade() {
-                let _ = about.hide();
-            }
             let _ = slint::quit_event_loop();
             slint::CloseRequestResponse::HideWindow
         });
@@ -3533,7 +3686,6 @@ fn run() -> Result<()> {
     render_timer.stop();
     search_timer.stop();
     queue.stop();
-    let _ = about.hide();
     let _ = ui.hide();
     if let Some(qa) = &qa {
         if !qa.borrow().done && failure.borrow().is_none() {
@@ -3561,7 +3713,6 @@ fn run() -> Result<()> {
     }
     // Dropping UI drops the output receiver callback before joining its worker.
     drop(ui);
-    drop(about);
     drop(state);
     drop(worker);
     if let Some(error) = failure.borrow().as_ref() {
