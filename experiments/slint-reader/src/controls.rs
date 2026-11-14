@@ -40,17 +40,23 @@ struct Inner {
     prefs: RefCell<preferences::Preferences>,
     surahs: Vec<data::Surah>,
     audio: RefCell<audio_bridge::AudioBridge>,
+    downloads: RefCell<Vec<audio_bridge::DownloadedSurah>>,
     last_audio: RefCell<Option<audio_bridge::AudioSnapshot>>,
     follow_request: Cell<Option<((u32, u32), i32)>>,
     language: Cell<bool>,
     initial_motion: bool,
     explicit_rate: Cell<bool>,
+    /// Where a recitation that spans surahs ends; each surah plays in turn.
+    listen_end: Cell<Option<(u32, u32)>>,
+    /// Whether the surah being recited is saved, for its reciter: (reciter, surah, saved).
+    saved_check: Cell<Option<(usize, u32, bool)>>,
     qa: bool,
 }
 pub struct Controller {
     inner: Rc<Inner>,
     save_timer: Rc<slint::Timer>,
     audio_timer: Rc<slint::Timer>,
+    download_timer: Rc<slint::Timer>,
     notice_timer: Rc<slint::Timer>,
     clock_timer: slint::Timer,
 }
@@ -58,6 +64,7 @@ impl Controller {
     pub fn open(ui: &ReaderWindow, root: &Path, profile: PathBuf, qa: bool) -> Result<Self> {
         let requested_profile = profile.clone();
         let surahs = data::Resources::open(root.to_path_buf())?.surahs;
+        let mut load_error = None;
         let (profile, prefs, error) = if qa {
             (
                 None,
@@ -76,7 +83,11 @@ impl Controller {
                     let prefs = p.preferences().clone();
                     (Some(p), prefs, false)
                 }
-                Err(_) => (None, preferences::Preferences::default(), true),
+                Err(error) => {
+                    eprintln!("Opening the profile failed: {error}");
+                    load_error = Some(error.to_string());
+                    (None, preferences::Preferences::default(), true)
+                }
             }
         };
         let motion = prefs.motion.unwrap_or_else(motion_preference);
@@ -92,7 +103,6 @@ impl Controller {
         ui.set_study_size(prefs.study_text_size as f32);
         ui.set_follow_recitation(prefs.follow_recitation);
         ui.set_open_tafsir_on_click(prefs.open_tafsir_on_click);
-        ui.set_software_rendering(prefs.software_rendering);
         ui.set_search_shortcut(prefs.search_shortcut as i32);
         ui.set_listen_shortcut(prefs.listen_shortcut as i32);
         ui.set_options_shortcut(prefs.options_shortcut as i32);
@@ -106,6 +116,19 @@ impl Controller {
         });
         ui.set_reciter_index(prefs.reciter.min(audio::RECITERS.len() - 1) as i32);
         ui.set_session_only(error);
+        // Say why, so an already-open window is not mistaken for lost settings.
+        if let Some(reason) = &load_error {
+            let in_use = reason.contains("already open") || reason.contains("exclusively");
+            ui.set_session_reason(
+                match (in_use, prefs.arabic) {
+                    (true, true) => "التطبيق مفتوح في نافذة أخرى، لذا لا تستطيع هذه النافذة حفظ التغييرات. أغلق النافذة الأخرى ثم أعد فتح التطبيق.",
+                    (true, false) => "The app is already open in another window, so this window can't save changes. Close the other window and reopen the app.",
+                    (false, true) => "تعذّرت قراءة إعداداتك المحفوظة، فتستخدم هذه الجلسة الإعدادات الافتراضية. لم يُغيَّر ملفك المحفوظ.",
+                    (false, false) => "Your saved settings couldn't be read, so this session uses the defaults. Your saved file was left untouched.",
+                }
+                .into(),
+            );
+        }
         let profile_path = profile
             .as_ref()
             .map(|p| p.directory().to_path_buf())
@@ -115,21 +138,26 @@ impl Controller {
             prefs: RefCell::new(prefs.clone()),
             surahs,
             audio: RefCell::new(audio_bridge::AudioBridge::new(profile_path)),
+            downloads: RefCell::new(Vec::new()),
             last_audio: RefCell::new(None),
             follow_request: Cell::new(None),
             language: Cell::new(prefs.arabic),
             initial_motion: motion,
             explicit_rate: Cell::new(false),
+            listen_end: Cell::new(None),
+            saved_check: Cell::new(None),
             qa,
         });
         let result = Self {
             inner,
             save_timer: Rc::new(slint::Timer::default()),
             audio_timer: Rc::new(slint::Timer::default()),
+            download_timer: Rc::new(slint::Timer::default()),
             notice_timer: Rc::new(slint::Timer::default()),
             clock_timer: slint::Timer::default(),
         };
         result.reciter_names(ui);
+        Self::surah_names(ui, &result.inner);
         if error {
             result.notice(
                 ui,
@@ -148,11 +176,38 @@ impl Controller {
         s.page = prefs.current_page;
         s.surahs = self.inner.surahs.clone();
         s.saved_bookmarks = prefs.bookmarks.clone();
+        s.shortcuts = shortcuts::resolve(
+            &prefs.shortcuts,
+            [
+                prefs.search_shortcut,
+                prefs.listen_shortcut,
+                prefs.options_shortcut,
+            ],
+        );
         drop(s);
+        ui.set_app_version(env!("CARGO_PKG_VERSION").into());
         ui.set_page(prefs.current_page as i32);
         ui.set_page_input(prefs.current_page.to_string().into());
         drop(prefs);
         self.bookmark_rows(ui, state);
+        Self::shortcut_rows(ui, state);
+    }
+    fn shortcut_rows(ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
+        let arabic = ui.get_arabic();
+        let rows = shortcuts::ACTIONS
+            .iter()
+            .zip(state.borrow().shortcuts.iter())
+            .map(|(action, keys)| BookmarkEntry {
+                title: if arabic {
+                    action.arabic
+                } else {
+                    action.english
+                }
+                .into(),
+                detail: shortcuts::display(keys, arabic).into(),
+            })
+            .collect::<Vec<_>>();
+        ui.set_shortcut_rows(ModelRc::new(VecModel::from(rows)));
     }
     fn notice(&self, ui: &ReaderWindow, text: &str) {
         Self::show_notice(ui, text, self.notice_timer.clone());
@@ -182,6 +237,192 @@ impl Controller {
                 })
                 .collect::<Vec<_>>(),
         )));
+    }
+    fn surah_names(ui: &ReaderWindow, inner: &Inner) {
+        let arabic = ui.get_arabic();
+        ui.set_surah_names(ModelRc::new(VecModel::from(
+            inner
+                .surahs
+                .iter()
+                .map(|s| {
+                    slint::SharedString::from(if arabic {
+                        format!("{} · {}", s.id, s.name_arabic)
+                    } else {
+                        format!("{}. {}", s.id, s.name_simple)
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )));
+    }
+    fn megabytes(bytes: u64, arabic: bool) -> String {
+        let value = bytes as f64 / 1_048_576.;
+        if arabic {
+            format!("{value:.1} ميغابايت")
+        } else {
+            format!("{value:.1} MB")
+        }
+    }
+    fn download_rows(ui: &ReaderWindow, inner: &Inner) {
+        let arabic = ui.get_arabic();
+        let list = inner.audio.borrow().downloaded();
+        let rows = list
+            .iter()
+            .map(|d| {
+                let surah = inner.surahs.iter().find(|s| s.id == d.surah);
+                let reciter = &audio::RECITERS[d.reciter];
+                BookmarkEntry {
+                    title: surah
+                        .map(|s| {
+                            if arabic {
+                                s.name_arabic.clone()
+                            } else {
+                                s.name_simple.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| d.surah.to_string())
+                        .into(),
+                    detail: if d.complete {
+                        format!(
+                            "{} · {}",
+                            if arabic {
+                                reciter.arabic
+                            } else {
+                                reciter.english
+                            },
+                            Self::megabytes(d.bytes, arabic)
+                        )
+                    } else if arabic {
+                        format!("{} · غير مكتمل، نزّله مرة أخرى", reciter.arabic)
+                    } else {
+                        format!("{} · Incomplete, download it again", reciter.english)
+                    }
+                    .into(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let total = list.iter().map(|d| d.bytes).sum::<u64>();
+        ui.set_downloads_storage(Self::megabytes(total, arabic).into());
+        ui.set_downloads(ModelRc::new(VecModel::from(rows)));
+        *inner.downloads.borrow_mut() = list;
+    }
+    fn surah_title(inner: &Inner, surah: u32, arabic: bool) -> String {
+        inner
+            .surahs
+            .iter()
+            .find(|s| s.id == surah)
+            .map(|s| {
+                if arabic {
+                    s.name_arabic.clone()
+                } else {
+                    s.name_simple.clone()
+                }
+            })
+            .unwrap_or_else(|| surah.to_string())
+    }
+    fn begin_download(
+        ui: &ReaderWindow,
+        inner: &Rc<Inner>,
+        timer: &Rc<slint::Timer>,
+        reciter: usize,
+        surah: u32,
+    ) {
+        let started = inner.audio.borrow_mut().start_download(reciter, surah);
+        match started {
+            Ok(()) => {
+                ui.set_download_busy(true);
+                ui.set_download_progress(0.);
+                ui.set_download_status(
+                    if ui.get_arabic() {
+                        "جارٍ تجهيز التنزيل…"
+                    } else {
+                        "Preparing the download…"
+                    }
+                    .into(),
+                );
+                Self::poll_downloads(ui, inner.clone(), timer.clone());
+            }
+            Err(error) => {
+                ui.set_download_status(
+                    if ui.get_arabic() {
+                        "تعذّر بدء التنزيل. حاول مرة أخرى.".to_string()
+                    } else {
+                        format!("The download could not start: {error}")
+                    }
+                    .into(),
+                );
+            }
+        }
+    }
+    fn poll_downloads(ui: &ReaderWindow, inner: Rc<Inner>, timer: Rc<slint::Timer>) {
+        let weak = ui.as_weak();
+        let timer_weak = Rc::downgrade(&timer);
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(150),
+            move || {
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                let arabic = ui.get_arabic();
+                let target = inner.audio.borrow().downloading();
+                let notice = inner.audio.borrow_mut().poll_download();
+                let stop = match notice {
+                    Some(audio_bridge::DownloadNotice::Progress(percent)) => {
+                        ui.set_download_progress(percent as f32 / 100.);
+                        ui.set_download_status(
+                            if arabic {
+                                format!("جارٍ التنزيل… {percent}٪")
+                            } else {
+                                format!("Downloading… {percent}%")
+                            }
+                            .into(),
+                        );
+                        false
+                    }
+                    Some(audio_bridge::DownloadNotice::Done) => {
+                        inner.saved_check.set(None);
+                        if inner.audio.borrow().current_surah() == target {
+                            ui.set_current_saved(true);
+                        }
+                        let title = target
+                            .map(|(_, surah)| Self::surah_title(&inner, surah, arabic))
+                            .unwrap_or_default();
+                        ui.set_download_progress(1.);
+                        ui.set_download_status(
+                            if arabic {
+                                format!("حُفظت سورة {title} للاستماع دون اتصال.")
+                            } else {
+                                format!("{title} is saved for offline listening.")
+                            }
+                            .into(),
+                        );
+                        Self::download_rows(&ui, &inner);
+                        true
+                    }
+                    Some(audio_bridge::DownloadNotice::Failed(message)) => {
+                        ui.set_download_status(
+                            if arabic {
+                                "تعذّر التنزيل. تحقّق من الاتصال بالإنترنت ثم حاول مرة أخرى."
+                                    .to_string()
+                            } else {
+                                format!("The download could not finish: {message}")
+                            }
+                            .into(),
+                        );
+                        Self::download_rows(&ui, &inner);
+                        true
+                    }
+                    Some(audio_bridge::DownloadNotice::Cancelled) => true,
+                    None => target.is_none(),
+                };
+                if stop {
+                    ui.set_download_busy(false);
+                    if let Some(timer) = timer_weak.upgrade() {
+                        timer.stop();
+                    }
+                }
+            },
+        );
     }
     fn bookmark_rows(&self, ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
         Self::rows(ui, state, &self.inner);
@@ -219,7 +460,8 @@ impl Controller {
         prefs.single_page = ui.get_single_page();
         prefs.follow_recitation = ui.get_follow_recitation();
         prefs.open_tafsir_on_click = ui.get_open_tafsir_on_click();
-        prefs.software_rendering = ui.get_software_rendering();
+        // No longer offered in Options: clear an earlier saved choice.
+        prefs.software_rendering = false;
         prefs.search_shortcut = ui.get_search_shortcut().max(0) as u32;
         prefs.listen_shortcut = ui.get_listen_shortcut().max(0) as u32;
         prefs.options_shortcut = ui.get_options_shortcut().max(0) as u32;
@@ -254,8 +496,21 @@ impl Controller {
         } else {
             return;
         };
-        if result.is_err() {
+        if result.is_ok() && ui.get_session_only() {
+            ui.set_session_only(false);
+            ui.set_session_reason("".into());
+        }
+        if let Err(error) = &result {
+            eprintln!("Saving preferences failed: {error}");
             ui.set_session_only(true);
+            ui.set_session_reason(
+                if ui.get_arabic() {
+                    "تعذّر حفظ آخر تغيير. سيُعاد المحاولة عند التغيير التالي."
+                } else {
+                    "The last change could not be saved. It will be tried again with your next change."
+                }
+                .into(),
+            );
             ui.set_render_status(
                 if ui.get_arabic() {
                     "تعذّر حفظ التغييرات. تظل خيارات هذه الجلسة فعّالة."
@@ -277,6 +532,7 @@ impl Controller {
             ui.set_audio_active(snapshot.active || snapshot.error);
             ui.set_audio_paused(snapshot.paused || snapshot.completed || snapshot.error);
             ui.set_audio_terminal(snapshot.completed || snapshot.error);
+            ui.set_audio_finished(snapshot.completed && !snapshot.error);
             ui.set_audio_loading(snapshot.loading);
             ui.set_audio_can_seek(snapshot.can_seek);
             ui.set_audio_progress(snapshot.slider as f32 / 10000.);
@@ -297,6 +553,21 @@ impl Controller {
                     .unwrap_or_default()
                     .into(),
             );
+            let recited = inner.audio.borrow().current_surah();
+            let saved = recited.is_some_and(|(reciter, surah)| match inner.saved_check.get() {
+                Some((r, s, saved)) if r == reciter && s == surah => saved,
+                _ => {
+                    let saved = inner
+                        .audio
+                        .borrow()
+                        .downloaded()
+                        .iter()
+                        .any(|d| d.reciter == reciter && d.surah == surah && d.complete);
+                    inner.saved_check.set(Some((reciter, surah, saved)));
+                    saved
+                }
+            });
+            ui.set_current_saved(saved);
         }
         let current = if snapshot.active {
             snapshot.current
@@ -310,6 +581,7 @@ impl Controller {
         };
         let mut s = state.borrow_mut();
         let changed = s.recitation != current || s.opening != opening;
+        let previous = s.recitation;
         s.recitation = current;
         s.opening = opening;
         let follow = ui.get_follow_recitation()
@@ -327,11 +599,62 @@ impl Controller {
             }
         } else if changed {
             inner.follow_request.set(None);
-            request_render(ui, state, queue);
+            if !Self::follow_page(ui, state, queue, previous, current) {
+                request_render(ui, state, queue);
+            }
         } else {
             inner.follow_request.set(None);
         }
         *inner.last_audio.borrow_mut() = Some(snapshot);
+    }
+    /// Turn to the page of the ayah being recited, as a reader following along
+    /// would. Only when the previous ayah was on screen, so someone who has
+    /// paged elsewhere is left where they are. Returns whether it navigated.
+    fn follow_page(
+        ui: &ReaderWindow,
+        state: &Rc<RefCell<State>>,
+        queue: &Queue,
+        previous: Option<(u32, u32)>,
+        current: Option<(u32, u32)>,
+    ) -> bool {
+        let Some(key) = current else { return false };
+        if ui.get_drag_active() || ui.get_turn_running() || ui.get_book_sliding() {
+            return false;
+        }
+        let s = state.borrow();
+        let single = s.last["singlePage"].as_bool().unwrap_or(false);
+        let page_of = |key: (u32, u32)| {
+            s.page_last
+                .iter()
+                .position(|last| *last >= key)
+                .map(|index| index as u32 + 1)
+        };
+        let shows = |page: u32, at: u32| {
+            if single {
+                page == at
+            } else {
+                app_core::spread(page) == app_core::spread(at)
+            }
+        };
+        let Some(target) = page_of(key) else {
+            return false;
+        };
+        if shows(target, s.page) {
+            return false;
+        }
+        if previous.is_some_and(|previous| !page_of(previous).is_some_and(|p| shows(p, s.page))) {
+            return false;
+        }
+        let next = app_core::destination(s.page, 1, single);
+        let selection = s.selection;
+        let turn = shows(target, next);
+        drop(s);
+        if turn {
+            ui.invoke_navigate(1);
+        } else {
+            set_page(ui, state, queue, target, selection);
+        }
+        true
     }
     fn poll_once(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, inner: &Inner) {
         let observed = { inner.audio.borrow_mut().poll(ui.get_arabic()) };
@@ -368,6 +691,9 @@ impl Controller {
             move || {
                 if let Some(ui) = weak.upgrade() {
                     Self::poll_once(&ui, &state, &queue, &inner);
+                    if Self::continue_range(&ui, &inner) {
+                        return;
+                    }
                 }
                 if !inner.audio.borrow().needs_poll()
                     && let Some(timer) = timer_weak.upgrade()
@@ -402,13 +728,57 @@ impl Controller {
             );
             return;
         };
+        let count = |surah: u32| {
+            inner
+                .surahs
+                .iter()
+                .find(|s| s.id == surah)
+                .map_or(1, |s| s.verses_count)
+        };
+        let (start, end) = {
+            let s = state.borrow();
+            let page = s
+                .context
+                .map(|v| v.1)
+                .filter(|_| s.context.is_some_and(|c| c.0 == key))
+                .unwrap_or(if s.selection == Some(key) && s.selection_page > 0 {
+                    s.selection_page
+                } else {
+                    s.page
+                });
+            match ui.get_listen_scope() {
+                // This ayah only.
+                1 => (key, key),
+                // To the end of the page, which may run into the next surahs.
+                2 => (
+                    key,
+                    s.page_last
+                        .get(page.saturating_sub(1) as usize)
+                        .copied()
+                        .filter(|end| *end >= key)
+                        .unwrap_or((key.0, count(key.0))),
+                ),
+                // The whole surah from its first verse.
+                3 => ((key.0, 1), (key.0, count(key.0))),
+                // On through the following surahs to the end of the Quran.
+                4 => (key, (114, count(114))),
+                _ => (key, (key.0, count(key.0))),
+            }
+        };
+        let reciter = ui
+            .get_reciter_index()
+            .clamp(0, audio::RECITERS.len() as i32 - 1) as usize;
         let rate = Self::new_play_rate(ui, &inner);
         let volume = f64::from(ui.get_volume()) / 100.;
+        inner.listen_end.set(Some(end));
         let result = inner.audio.borrow_mut().play(
-            ui.get_reciter_index()
-                .clamp(0, audio::RECITERS.len() as i32 - 1) as usize,
-            key,
-            ui.get_listen_only_ayah(),
+            reciter,
+            start,
+            Some(if end.0 == start.0 {
+                end.1
+            } else {
+                count(start.0)
+            }),
             rate,
             volume,
         );
@@ -420,6 +790,44 @@ impl Controller {
                 Self::start_poll(ui, state, queue, inner, timer);
             }
             Err(error) => ui.set_audio_status(error.to_string().into()),
+        }
+    }
+    /// When a surah in a longer range has finished, play the next one with the
+    /// same reciter, speed and volume. The timer keeps polling the new session.
+    fn continue_range(ui: &ReaderWindow, inner: &Inner) -> bool {
+        let Some(end) = inner.listen_end.get() else {
+            return false;
+        };
+        let finished = inner.audio.borrow().finished();
+        let Some((reciter, surah)) = finished.filter(|(_, surah)| *surah < end.0) else {
+            return false;
+        };
+        let next = surah + 1;
+        let last = if next == end.0 {
+            end.1
+        } else {
+            inner
+                .surahs
+                .iter()
+                .find(|s| s.id == next)
+                .map_or(1, |s| s.verses_count)
+        };
+        let rate = f64::from(ui.get_playback_rate());
+        let volume = f64::from(ui.get_volume()) / 100.;
+        let result = inner
+            .audio
+            .borrow_mut()
+            .play(reciter, (next, 1), Some(last), rate, volume);
+        match result {
+            Ok(()) => {
+                *inner.last_audio.borrow_mut() = None;
+                true
+            }
+            Err(error) => {
+                inner.listen_end.set(None);
+                ui.set_audio_status(error.to_string().into());
+                false
+            }
         }
     }
     fn new_play_rate(ui: &ReaderWindow, inner: &Inner) -> f64 {
@@ -443,7 +851,10 @@ impl Controller {
                     if inner.language.replace(ui.get_arabic()) != ui.get_arabic() {
                         ui.set_study_source(if ui.get_arabic() { 0 } else { 2 });
                         Self::names(&ui);
+                        Self::surah_names(&ui, &inner);
+                        Self::download_rows(&ui, &inner);
                         Self::rows(&ui, &state, &inner);
+                        Self::shortcut_rows(&ui, &state);
                         if !ui.get_search_query().is_empty() {
                             ui.invoke_search(ui.get_search_query());
                         }
@@ -681,11 +1092,82 @@ impl Controller {
         }
         {
             let weak = ui.as_weak();
-            ui.on_listen_selected(move || {
+            ui.on_listen_selected(move |scope| {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_listen_only_ayah(false);
+                    ui.set_listen_scope(scope.clamp(0, 4));
                     ui.invoke_play_selected();
                 }
+            });
+        }
+        {
+            let state = state.clone();
+            let weak = ui.as_weak();
+            let inner = self.inner.clone();
+            ui.on_shortcut_captured(move |index, combo| {
+                let Some(ui) = weak.upgrade() else { return };
+                let Some(action) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| shortcuts::ACTIONS.get(i))
+                else {
+                    return;
+                };
+                let arabic = ui.get_arabic();
+                let clash = (!combo.is_empty())
+                    .then(|| {
+                        state
+                            .borrow()
+                            .shortcuts
+                            .iter()
+                            .position(|s| s.as_str() == combo.as_str())
+                    })
+                    .flatten()
+                    .filter(|other| *other != index as usize);
+                if let Some(other) = clash {
+                    let other = &shortcuts::ACTIONS[other];
+                    ui.set_shortcut_status(
+                        if arabic {
+                            format!("هذا الاختصار مستخدم في «{}».", other.arabic)
+                        } else {
+                            format!("Already used for {}.", other.english)
+                        }
+                        .into(),
+                    );
+                    return;
+                }
+                state.borrow_mut().shortcuts[index as usize] = combo.to_string();
+                inner
+                    .prefs
+                    .borrow_mut()
+                    .shortcuts
+                    .insert(action.name.to_string(), combo.to_string());
+                ui.set_shortcut_capture(-1);
+                ui.set_shortcut_status("".into());
+                Self::shortcut_rows(&ui, &state);
+                ui.invoke_preferences_changed();
+            });
+        }
+        {
+            let state = state.clone();
+            let weak = ui.as_weak();
+            let inner = self.inner.clone();
+            ui.on_shortcuts_reset(move || {
+                let Some(ui) = weak.upgrade() else { return };
+                {
+                    let mut prefs = inner.prefs.borrow_mut();
+                    prefs.shortcuts.clear();
+                    prefs.search_shortcut = 0;
+                    prefs.listen_shortcut = 0;
+                    prefs.options_shortcut = 0;
+                }
+                ui.set_search_shortcut(0);
+                ui.set_listen_shortcut(0);
+                ui.set_options_shortcut(0);
+                state.borrow_mut().shortcuts =
+                    shortcuts::resolve(&std::collections::BTreeMap::new(), [0, 0, 0]);
+                ui.set_shortcut_capture(-1);
+                ui.set_shortcut_status("".into());
+                Self::shortcut_rows(&ui, &state);
+                ui.invoke_preferences_changed();
             });
         }
         {
@@ -724,6 +1206,7 @@ impl Controller {
                 if let Some(ui) = weak.upgrade() {
                     timer.stop();
                     let _ = inner.audio.borrow_mut().stop();
+                    inner.listen_end.set(None);
                     inner.explicit_rate.set(false);
                     inner.follow_request.set(None);
                     if !ui.get_remember_speed() {
@@ -817,6 +1300,120 @@ impl Controller {
                         .borrow_mut()
                         .set_volume(f64::from(volume.clamp(0., 100.)) / 100.);
                     ui.invoke_preferences_changed();
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let state = state.clone();
+            let weak = ui.as_weak();
+            ui.on_downloads_refresh(move || {
+                if let Some(ui) = weak.upgrade() {
+                    if inner.audio.borrow().downloading().is_none() {
+                        let s = state.borrow();
+                        let key = s
+                            .context
+                            .map(|v| v.0)
+                            .or(s.selection)
+                            .or_else(|| s.probe.map(|p| p.2));
+                        if let Some(key) = key {
+                            ui.set_download_surah(key.0 as i32 - 1);
+                        }
+                        drop(s);
+                        if !ui.get_download_busy() {
+                            ui.set_download_status("".into());
+                        }
+                    }
+                    Self::download_rows(&ui, &inner);
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let weak = ui.as_weak();
+            let timer = self.download_timer.clone();
+            ui.on_download_start(move |index| {
+                if let Some(ui) = weak.upgrade() {
+                    let reciter = ui
+                        .get_reciter_index()
+                        .clamp(0, audio::RECITERS.len() as i32 - 1)
+                        as usize;
+                    let surah = (index.clamp(0, 113) + 1) as u32;
+                    Self::begin_download(&ui, &inner, &timer, reciter, surah);
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let weak = ui.as_weak();
+            let timer = self.download_timer.clone();
+            ui.on_download_current(move || {
+                if let Some(ui) = weak.upgrade() {
+                    let recited = inner.audio.borrow().current_surah();
+                    if let Some((reciter, surah)) = recited {
+                        ui.set_download_surah(surah as i32 - 1);
+                        Self::begin_download(&ui, &inner, &timer, reciter, surah);
+                    }
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let weak = ui.as_weak();
+            let timer = self.download_timer.clone();
+            ui.on_download_cancel(move || {
+                if let Some(ui) = weak.upgrade() {
+                    inner.audio.borrow_mut().cancel_download();
+                    timer.stop();
+                    ui.set_download_busy(false);
+                    ui.set_download_status(
+                        if ui.get_arabic() {
+                            "أُلغي التنزيل."
+                        } else {
+                            "Download cancelled."
+                        }
+                        .into(),
+                    );
+                    Self::download_rows(&ui, &inner);
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let weak = ui.as_weak();
+            ui.on_download_delete(move |index| {
+                if let Some(ui) = weak.upgrade() {
+                    let item = inner.downloads.borrow().get(index.max(0) as usize).copied();
+                    let Some(item) = item else {
+                        return;
+                    };
+                    let arabic = ui.get_arabic();
+                    let result = inner.audio.borrow_mut().delete_download(item);
+                    match result {
+                        Ok(()) => {
+                            let title = Self::surah_title(&inner, item.surah, arabic);
+                            ui.set_download_status(
+                                if arabic {
+                                    format!("حُذف تنزيل سورة {title}.")
+                                } else {
+                                    format!("Deleted the download of {title}.")
+                                }
+                                .into(),
+                            );
+                        }
+                        Err(error) => {
+                            ui.set_download_status(
+                                if arabic {
+                                    "تعذّر حذف التنزيل. أوقف التلاوة إن كانت تعمل ثم حاول مرة أخرى."
+                                        .to_string()
+                                } else {
+                                    error.to_string()
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                    Self::download_rows(&ui, &inner);
                 }
             });
         }

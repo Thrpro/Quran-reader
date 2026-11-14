@@ -36,7 +36,14 @@ $app = Join-Path $OutDir $appName
 function Get-Sha256([string] $Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
 
 if (-not $FromAppFolder) {
-    if (Test-Path $app) { Remove-Item $app -Recurse -Force }
+    if (Test-Path $app) {
+        # A portable copy keeps its reading profile beside the executable. Never
+        # clear a folder someone has been using.
+        if (Test-Path (Join-Path $app 'SlintProfile')) {
+            throw "$app contains a SlintProfile (someone's saved reading data). Choose another -OutDir."
+        }
+        Remove-Item $app -Recurse -Force
+    }
     New-Item -ItemType Directory $app | Out-Null
 
     # 1. The pinned resource base.

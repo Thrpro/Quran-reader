@@ -1,6 +1,7 @@
 // Authentic Quran pixels and hit maps are supplied by the unchanged native renderer.
-import { AboutSlint, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+import { LineEdit, Palette, ScrollView } from "std-widgets.slint";
 export struct SearchEntry { title: string, detail: string, badge: string, secondary: string }
+export struct SectionChoices { juz: [string], hizb: [string], rub: [string] }
 export struct BookmarkEntry { title: string, detail: string }
 export struct FoldGeometry { plane_x: float, plane_y: float, plane_angle: float, back_x: float, back_y: float, back_angle: float }
 export struct HoverRect { x: float, y: float, w: float, h: float }
@@ -52,7 +53,8 @@ component Action inherits Rectangle {
  accessible-role: button; accessible-label: root.symbol > 0 ? hint : text; accessible-description: hint; accessible-enabled: enabled;
  accessible-action-default => { if root.enabled { root.clicked(); } }
  forward-focus: keys;
- button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : 10px; width: max(0px, parent.width - (root.leading-icon > 0 ? 40px : 20px)); height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.subtle ? 12px : 13px; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ private property <length> pad: root.width < 52px ? 4px : 10px;
+ button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : root.pad; width: max(0px, parent.width - (root.leading-icon > 0 ? 40px : 2 * root.pad)); height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.subtle ? 12px : 13px; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
  if root.leading-icon > 0 : Path { x: root.rtl ? parent.width - 25px : 8px; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 16px; height: self.width; commands: root.leading-icon == 8 ? "M 6 0 C 2.7 0 0 2.7 0 6 C 0 9.3 2.7 12 6 12 C 9.3 12 12 9.3 12 6 C 12 2.7 9.3 0 6 0 Z M 10.5 10.5 L 16 16" : root.leading-icon == 9 ? "M 1 9 C 1 4 4 1 8 1 C 12 1 15 4 15 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 11 9 L 15 9 L 15 15 L 11 15 Z" : "M 0 4 L 3 4 M 7 4 L 16 4 M 0 12 L 9 12 M 13 12 L 16 12 M 7 4 A 2 2 0 1 1 3 4 A 2 2 0 1 1 7 4 M 13 12 A 2 2 0 1 1 9 12 A 2 2 0 1 1 13 12"; stroke: root.subtle && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; stroke-width: root.subtle ? 1.2px : 1.4px; fill: transparent; }
  if root.symbol == 1 : Path { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 17px; height: self.width; commands: "M 1 7 L 1 1 L 7 1 M 11 1 L 17 1 L 17 7 M 17 11 L 17 17 L 11 17 M 7 17 L 1 17 L 1 11"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 12 : Path { x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2; width: 10px; height: 10px; commands: "M 0 0 L 10 10 M 10 0 L 0 10"; stroke: UiColors.muted; stroke-width: 1.2px; fill: transparent; }
@@ -64,6 +66,9 @@ component Action inherits Rectangle {
  if root.symbol == 9 : Path { x: (parent.width - 18px) / 2; y: (parent.height - 16px) / 2; width: 18px; height: 16px; commands: "M 1 9 C 1 4 4 1 9 1 C 14 1 17 4 17 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 13 9 L 17 9 L 17 15 L 13 15 Z"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 10 : Path { x: (parent.width - 18px) / 2; y: (parent.height - 16px) / 2; width: 18px; height: 16px; commands: "M 0 4 L 3 4 M 7 4 L 16 4 M 0 12 L 9 12 M 13 12 L 16 12 M 7 4 A 2 2 0 1 1 3 4 A 2 2 0 1 1 7 4 M 13 12 A 2 2 0 1 1 9 12 A 2 2 0 1 1 13 12"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 2 : Path { x: (parent.width - 12px) / 2; y: (parent.height - 6px) / 2; width: 12px; height: 6px; commands: "M 0 6 L 6 0 L 12 6"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
+ if root.symbol == 14 : Path { x: (parent.width - 14px) / 2; y: (parent.height - 15px) / 2; width: 14px; height: 15px; commands: "M 7 0 L 7 10 M 2.5 5.5 L 7 10 L 11.5 5.5 M 0.5 14 L 13.5 14"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
+ if root.symbol == 15 : Path { x: (parent.width - 14px) / 2; y: (parent.height - 11px) / 2; width: 14px; height: 11px; commands: "M 0.5 6 L 5 10.5 L 13.5 0.5"; stroke: UiColors.accent; stroke-width: 1.8px; fill: transparent; }
+ if root.symbol == 13 : Path { x: (parent.width - 12px) / 2; y: (parent.height - 6px) / 2; width: 12px; height: 6px; commands: "M 0 0 L 6 6 L 12 0"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  Tooltip { Text { text: root.hint; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } }
  keys := FocusScope { enabled: root.enabled; key-pressed(event) => { if event.text == Key.Return || event.text == " " { root.clicked(); return accept; } return reject; } }
  touch := TouchArea { enabled: root.enabled; clicked => { keys.focus(); root.clicked(); } }
@@ -91,7 +96,6 @@ component SettingsLink inherits Rectangle {
  if root.detail != "" : Text { x: root.rtl ? 8px : parent.width - 54px; y: 0px; width: 46px; height: parent.height; text: root.detail; color: UiColors.muted; font-size: 11px; vertical-alignment: center; horizontal-alignment: center; }
  keys := FocusScope { key-pressed(e) => {if e.text == Key.Return || e.text == " " {root.clicked(); return accept;} return reject;} }
  touch := TouchArea { clicked => {keys.focus();root.clicked();} }
- Tooltip {Text {text: root.text; color: UiColors.ink;} }
 }
 component CaptionButton inherits Rectangle {
  in property <int> kind; in property <bool> maximized; in property <string> label;
@@ -126,23 +130,25 @@ component SearchTab inherits Rectangle {
 }
 component SearchResult inherits Rectangle {
  in property <SearchEntry> entry; in property <bool> rtl; in property <bool> enabled: true; in property <bool> selected: false;
+ in property <bool> current: false;
  callback clicked();
- height: root.entry.detail == "" ? 56px : root.entry.secondary != "" ? 68px : 93px;
+ height: root.entry.detail == "" ? 56px : root.entry.badge != "" ? 68px : 93px;
  vertical-stretch: 0;
- border-radius: 8px; background: root.selected ? UiColors.field : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field.with-alpha(0.6) : transparent;
+ border-radius: 8px; background: root.selected ? UiColors.field : touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field.with-alpha(0.6) : root.current ? UiColors.selected.with-alpha(0.55) : transparent;
  border-width: root.selected ? 1px : 0px; border-color: UiColors.edge;
  accessible-role: button; accessible-label: root.entry.badge + " " + root.entry.title + " " + root.entry.secondary; accessible-description: root.entry.detail; accessible-enabled: enabled;
  accessible-action-default => { if root.enabled { root.clicked(); } }
  forward-focus: keys;
- if root.selected : Rectangle { x: root.rtl ? parent.width - 4px : 1px; y: 10px; width: 3px; height: parent.height - 20px; border-radius: 2px; background: UiColors.accent; }
+ if root.selected || root.current : Rectangle { x: root.rtl ? parent.width - 4px : 1px; y: 10px; width: 3px; height: parent.height - 20px; border-radius: 2px; background: UiColors.accent; }
  HorizontalLayout { x: 12px; y: 8px; width: parent.width - 24px; height: root.entry.detail == "" ? parent.height - 16px : 36px; spacing: 14px;
   if root.entry.badge != "" : Rectangle { layout-order: root.rtl ? 2 : 0; width: 34px; height: 34px; border-radius: 17px; border-width: 1px; border-color: UiColors.edge; background: root.selected ? UiColors.surface : transparent;
    Text { width: parent.width; height: parent.height; text: root.entry.badge; color: UiColors.ink; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
   }
   Text { layout-order: 1; text: root.entry.title; color: UiColors.ink; font-size: 15px; font-weight: 700; horizontal-stretch: 1; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+  if root.current : Text { layout-order: root.rtl ? 0 : 2; text: root.rtl ? "السورة الحالية" : "Current surah"; color: UiColors.accent; font-size: 12px; font-weight: 600; vertical-alignment: center; }
   if root.entry.secondary != "" : Text { layout-order: root.rtl ? 0 : 2; text: root.entry.secondary; color: UiColors.muted; font-size: 14px; width: min(220px, root.width * 0.35); horizontal-alignment: root.rtl ? left : right; vertical-alignment: center; overflow: elide; }
  }
- if root.entry.detail != "" : Text { x: 12px; y: root.entry.secondary != "" ? 39px : 44px; width: parent.width - 24px; height: root.entry.secondary != "" ? 20px : 42px; text: root.entry.detail; color: UiColors.muted; font-size: root.entry.secondary != "" ? 11px : 13px; horizontal-alignment: root.rtl ? right : left; wrap: word-wrap; overflow: elide; }
+ if root.entry.detail != "" : Text { x: 12px; y: root.entry.badge != "" ? 39px : 44px; width: parent.width - 24px; height: root.entry.badge != "" ? 20px : 42px; text: root.entry.detail; color: UiColors.muted; font-size: root.entry.badge != "" ? 12px : 13px; horizontal-alignment: root.rtl ? right : left; wrap: word-wrap; overflow: elide; }
  keys := FocusScope { enabled: root.enabled; key-pressed(e) => { if e.text == Key.Return || e.text == " " { root.clicked(); return accept; } return reject; } }
  touch := TouchArea { enabled: root.enabled; clicked => { keys.focus(); root.clicked(); } }
 }
@@ -173,18 +179,30 @@ component ChoiceField inherits Rectangle {
  in property <string> label;
  in property <bool> enabled: true;
  in-out property <int> current-index: 0;
+ in property <string> placeholder;
+ // Entries numbered 1, 2, 3… in order (juz, hizb, rub): typing a number jumps to it.
+ in property <bool> numbered: false;
+ private property <string> typed;
  private property <int> highlighted-index: 0;
+ function type-digit(digit: string) {
+  root.typed = typing.running ? root.typed + digit : digit;
+  typing.running = false; typing.running = true;
+  if root.typed.to-float() >= 1 && root.typed.to-float() <= root.model.length {
+   root.highlighted-index = Math.floor(root.typed.to-float()) - 1;
+  }
+ }
+ typing := Timer { interval: 1200ms; running: false; triggered => { self.running = false; } }
  callback selected(int);
- function open-choices() { root.highlighted-index = root.current-index; popup.show(); }
+ function open-choices() { root.highlighted-index = max(0, root.current-index); popup.show(); }
  preferred-height: 36px; min-height: 36px; max-height: 36px; vertical-stretch: 0; border-radius: 6px; border-width: 1px;
  border-color: keys.has-focus && UiColors.keyboard-focus ? UiColors.accent : UiColors.edge; background: UiColors.field; opacity: enabled ? 1 : 0.5;
  accessible-role: combobox; accessible-label: label; accessible-value: current-index >= 0 && current-index < model.length ? model[current-index] : ""; accessible-enabled: enabled;
  accessible-action-default => { if root.enabled { root.open-choices(); } }
  forward-focus: keys;
- Text { x: root.rtl ? 32px : 12px; width: parent.width - 44px; height: parent.height; text: root.current-index >= 0 && root.current-index < root.model.length ? root.model[root.current-index] : ""; color: UiColors.ink; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ Text { x: root.rtl ? 32px : 12px; width: parent.width - 44px; height: parent.height; text: root.current-index >= 0 && root.current-index < root.model.length ? root.model[root.current-index] : root.placeholder; color: root.current-index >= 0 ? UiColors.ink : UiColors.muted; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
  Path { x: root.rtl ? 12px : parent.width - 23px; y: (parent.height - 6px) / 2; width: 10px; height: 6px; commands: "M 0 0 L 5 5 L 10 0"; stroke: UiColors.muted; stroke-width: 1.5px; fill: transparent; }
  Tooltip { Text { text: root.label; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } }
- keys := FocusScope { enabled: root.enabled; key-pressed(event) => { if event.text == Key.Return || event.text == " " || event.text == Key.DownArrow { root.open-choices(); return accept; } return reject; } }
+ keys := FocusScope { enabled: root.enabled; key-pressed(event) => { if event.text == Key.Return || event.text == " " || event.text == Key.DownArrow { root.open-choices(); return accept; } if root.numbered && event.text.character-count == 1 && event.text.is-float() { root.open-choices(); root.type-digit(event.text); return accept; } return reject; } }
  TouchArea { enabled: root.enabled; clicked => { keys.focus(); root.open-choices(); } }
  popup := PopupWindow {
   x: 0px; y: root.height + 4px; width: root.width; height: min(248px, root.model.length * 36px + 12px); close-policy: close-on-click-outside; forward-focus: popup-keys;
@@ -194,10 +212,14 @@ component ChoiceField inherits Rectangle {
     if event.text == Key.UpArrow { root.highlighted-index = max(0, root.highlighted-index - 1); return accept; }
     if event.text == Key.DownArrow { root.highlighted-index = min(root.model.length - 1, root.highlighted-index + 1); return accept; }
     if event.text == Key.Return { root.current-index = root.highlighted-index; root.selected(root.current-index); popup.close(); return accept; }
+    if root.numbered && event.text.character-count == 1 && event.text.is-float() { root.type-digit(event.text); return accept; }
     return reject;
    }
    Rectangle { border-radius: 8px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
-    ScrollView { x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 10px; horizontal-scrollbar-policy: always-off; vertical-scrollbar-policy: as-needed;
+    choices := ScrollView { x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 10px; horizontal-scrollbar-policy: always-off; vertical-scrollbar-policy: as-needed;
+     // Keep a typed or arrowed-to entry in view.
+     private property <int> watch: root.highlighted-index;
+     changed watch => { self.content-y = -max(0px, min(root.highlighted-index * 36px - 72px, root.model.length * 36px - self.height)); }
      VerticalLayout { spacing: 2px; for entry[index] in root.model : Action { height: 34px; text: entry; rtl: root.rtl; centered: false; quiet: true; selected: index == root.highlighted-index; clicked => { root.current-index = index; root.selected(index); popup.close(); } } }
     }
    }
@@ -292,20 +314,30 @@ component PanelScroll inherits Rectangle {
   }
  }
 }
-component MenuAction inherits Rectangle {
- in property <string> text; in property <int> icon; in property <bool> rtl;
+// A menu row: icon, title and a short explanation.
+component MenuItem inherits Rectangle {
+ in property <string> text; in property <string> detail; in property <int> icon: -1; in property <bool> rtl;
  callback clicked();
- height: 40px; vertical-stretch: 0; border-radius: 5px;
+ preferred-height: root.detail == "" ? 36px : 52px; min-height: self.preferred-height; vertical-stretch: 0; border-radius: 8px;
  background: touch.has-hover || (keys.has-focus && UiColors.keyboard-focus) ? UiColors.field : transparent;
- accessible-role: button; accessible-label: text; accessible-action-default => { root.clicked(); }
+ accessible-role: button; accessible-label: text; accessible-description: detail; accessible-action-default => { root.clicked(); }
  forward-focus: keys;
- Path { x: root.rtl ? parent.width - 26px : 10px; y: 12px; width: 16px; height: 16px;
-  commands: root.icon == 0 ? "M 8 3 C 5 1 2 1 0 2 L 0 14 C 3 13 5 13 8 15 C 11 13 13 13 16 14 L 16 2 C 13 1 11 1 8 3 Z M 8 3 L 8 15" : root.icon == 1 ? "M 1 9 C 1 4 4 1 8 1 C 12 1 15 4 15 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 11 9 L 15 9 L 15 15 L 11 15 Z" : "M 3 1 L 13 1 L 13 15 L 8 11 L 3 15 Z";
-  stroke: UiColors.muted; stroke-width: 1.3px; fill: transparent;
+ private property <length> inset: root.icon >= 0 ? 44px : 12px;
+ if root.icon >= 0 : Path { x: root.rtl ? parent.width - 30px : 13px; y: (parent.height - 17px) / 2; width: 17px; height: 17px;
+  commands: root.icon == 0 ? "M 8 3 C 5 1 2 1 0 2 L 0 14 C 3 13 5 13 8 15 C 11 13 13 13 16 14 L 16 2 C 13 1 11 1 8 3 Z M 8 3 L 8 15" : root.icon == 1 ? "M 1 9 C 1 4 4 1 8 1 C 12 1 15 4 15 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 11 9 L 15 9 L 15 15 L 11 15 Z" : root.icon == 2 ? "M 3 1 L 13 1 L 13 15 L 8 11 L 3 15 Z" : "M 8 0 L 8 11 M 3 6 L 8 11 L 13 6 M 1 15 L 15 15";
+  stroke: UiColors.ink; stroke-width: 1.4px; fill: transparent;
  }
- Text { x: root.rtl ? 10px : 38px; width: parent.width - 48px; height: parent.height; text: root.text; color: UiColors.ink; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; }
+ Text { x: root.rtl ? 12px : root.inset; y: root.detail == "" ? 0px : 8px; width: parent.width - root.inset - 12px; height: root.detail == "" ? parent.height : 20px; text: root.text; color: UiColors.ink; font-size: root.detail == "" ? 13px : 14px; font-weight: root.detail == "" ? 400 : 600; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ if root.detail != "" : Text { x: root.rtl ? 12px : root.inset; y: 28px; width: parent.width - root.inset - 12px; height: 17px; text: root.detail; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
  keys := FocusScope { key-pressed(e) => { if e.text == Key.Return || e.text == " " { root.clicked(); return accept; } return reject; } }
  touch := TouchArea { clicked => { root.clicked(); } }
+}
+// A label with its control on the same line.
+component SettingRow inherits HorizontalLayout {
+ in property <string> label; in property <bool> rtl;
+ spacing: 10px; preferred-height: 38px; min-height: 38px; vertical-stretch: 0;
+ Text { layout-order: root.rtl ? 1 : 0; horizontal-stretch: 1; text: root.label; color: UiColors.ink; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ @children
 }
 component ReadingBody inherits Rectangle {
  in property <string> body; in property <float> text-size: 20; in property <bool> rtl;
@@ -358,20 +390,90 @@ export component ReaderWindow inherits Window {
  in-out property <string> panel: ""; in-out property <string> page-input: "1"; in-out property <string> search-query: "";
  in-out property <int> render-generation: 0; in-out property <bool> render-busy: false;
  in property <int> rendered-page: 1;
- private property <length> study-space: root.panel == "study" || root.study-closing ? min(364px, canvas.width * 0.4) : 0px;
+ private property <length> study-space: root.panel == "study" ? min(364px, canvas.width * 0.4) : 0px;
  out property <float> canvas-w: (canvas.width - root.study-space) / 1px; out property <float> canvas-h: canvas.height / 1px;
  out property <float> canvas-x: root.arabic ? 0 : root.study-space / 1px; out property <float> canvas-y: root.fullscreen ? 0 : 29;
  in property <int> page: 1; in property <string> label; in property <image> book-image;
  in property <float> image-x; in property <float> image-y; in property <float> image-w; in property <float> image-h;
  in property <string> render-status; in property <string> study-title; in property <string> study-body;
  in property <[SearchEntry]> results;
- callback render-requested(float, float); callback navigate(int); callback go-page(string); callback search(string); callback choose-result(int) -> bool; callback pick-ayah(float, float); callback close-study(); callback about-requested(); callback worker-ready();
+ callback render-requested(float, float); callback navigate(int); callback go-page(string); callback search(string); callback choose-result(int) -> bool; callback pick-ayah(float, float); callback close-study(); callback worker-ready();
  in-out property <int> theme: 0;
  in-out property <bool> contextual: false; in-out property <bool> show-clock: false; in-out property <bool> clock-24: false; in-out property <bool> single-page: false;
  in-out property <int> study-source: 0; in-out property <float> study-size: 20; in-out property <bool> follow-recitation: false;
  in-out property <bool> remember-speed: false; in-out property <bool> fullscreen: false;
  in-out property <bool> open-tafsir-on-click: false;
- in-out property <bool> software-rendering: false;
+ // Smooth tafsir open and close. The book glides, as one layer, from where it
+ // is on screen to where it will be. Whatever raster is current (an earlier
+ // one, or a redraw that lands mid-glide) is mapped onto that moving
+ // rectangle, so a raster arriving early can never shift the book. The sharp
+ // redraw at the final size is requested when the glide ends.
+ in-out property <float> raster-canvas-x: 0;
+ in-out property <bool> book-sliding: false;
+ private property <bool> slide-awaiting: false;
+ // After the sharp redraw: a short glide from the predicted place to where
+ // the native layout actually put the book, instead of a jump.
+ private property <bool> slide-settling: false;
+ private property <duration> slide-start: 0ms;
+ private property <float> slide-from-x: 0;
+ private property <float> slide-from-y: 0;
+ private property <float> slide-from-w: 1;
+ private property <float> slide-raw: root.book-sliding ? clamp((animation-tick() - root.slide-start) / (root.slide-settling ? 140ms : 240ms), 0, 1) : 1;
+ private property <float> slide-t: root.slide-raw < 0.5 ? 2 * root.slide-raw * root.slide-raw : 1 - 2 * (1 - root.slide-raw) * (1 - root.slide-raw);
+ private property <float> raster-book-x: root.raster-canvas-x + root.image-x + root.book-x;
+ private property <float> raster-book-y: root.image-y + root.book-y;
+ private property <float> target-book-x: root.slide-settling ? root.raster-book-x : root.canvas-x + root.book-x-for(root.canvas-w, root.canvas-h);
+ private property <float> target-book-y: root.slide-settling ? root.raster-book-y : 4;
+ private property <float> target-book-w: root.slide-settling ? root.book-w : root.book-w-for(root.canvas-w, root.canvas-h);
+ private property <float> shown-x: root.slide-from-x + (root.target-book-x - root.slide-from-x) * root.slide-t;
+ private property <float> shown-y: root.slide-from-y + (root.target-book-y - root.slide-from-y) * root.slide-t;
+ private property <float> shown-w: root.slide-from-w + (root.target-book-w - root.slide-from-w) * root.slide-t;
+ out property <float> slide-s: root.book-sliding && root.book-w > 0 ? root.shown-w / root.book-w : 1;
+ out property <float> slide-dx: root.book-sliding ? root.shown-x - root.slide-s * root.raster-book-x : 0;
+ out property <float> slide-dy: root.book-sliding ? root.shown-y - root.slide-s * root.raster-book-y : 0;
+ pure function raster-at-target() -> bool {
+  return abs(root.raster-book-x - root.target-book-x) < 0.75 && abs(root.raster-book-y - root.target-book-y) < 0.75
+     && abs(root.book-w - root.target-book-w) < 0.75;
+ }
+ callback raster-applied();
+ raster-applied => {
+  root.raster-canvas-x = root.canvas-x;
+  if root.book-sliding && root.slide-awaiting {
+   root.slide-awaiting = false;
+   if root.raster-at-target() {
+    root.book-sliding = false;
+   } else {
+    // Hold the book where it is on screen and glide it onto the new raster.
+    root.slide-from-x = root.shown-x; root.slide-from-y = root.shown-y; root.slide-from-w = root.shown-w;
+    root.slide-settling = true;
+    root.slide-start = animation-tick();
+   }
+  }
+ }
+ pure function drawing-w(w: float) -> float { return root.single-page ? min(w, 649) : w; }
+ pure function page-w(w: float, h: float) -> float {
+  return max(0.5, min(clamp(h - 8, 1, 1120) * 617 / 919, max(root.drawing-w(w) - 24, 1) / (root.drawing-w(w) < 650 ? 1 : 2)));
+ }
+ pure function book-w-for(w: float, h: float) -> float { return root.page-w(w, h) * (root.drawing-w(w) < 650 ? 1 : 2); }
+ pure function book-x-for(w: float, h: float) -> float { return (w - root.drawing-w(w)) / 2 + (root.drawing-w(w) - root.book-w-for(w, h)) / 2; }
+ function start-book-slide() {
+  if !root.motion-enabled || root.book-w <= 0 || root.turn-running || root.drag-active
+     || (root.drawing-w(root.canvas-w) < 650) != (root.book-w < root.book-h) {
+   root.book-sliding = false;
+   root.slide-awaiting = false;
+   root.slide-settling = false;
+   root.render-requested(root.canvas-w, root.canvas-h);
+   return;
+  }
+  // Start from what is on screen now, including a glide still under way.
+  root.slide-from-x = root.book-sliding ? root.shown-x : root.raster-book-x;
+  root.slide-from-y = root.book-sliding ? root.shown-y : root.raster-book-y;
+  root.slide-from-w = root.book-sliding ? root.shown-w : root.book-w;
+  root.slide-settling = false;
+  root.slide-start = animation-tick();
+  root.slide-awaiting = false;
+  root.book-sliding = true;
+ }
  // Diagnostic geometry checks compare flat faces, so they turn the paper shading off.
  in property <bool> fold-shading: true;
  // The rounded paper frame inside the raster, which the fold's shadow must stay within.
@@ -384,19 +486,50 @@ export component ReaderWindow inherits Window {
  in-out property <int> listen-shortcut: 0;
  in-out property <int> options-shortcut: 0;
  in-out property <bool> study-closing: false;
- callback open-search(); open-search => { root.context-open = false; root.panel = "search"; root.search(root.search-query); }
- in property <string> notification; in property <string> notice; in property <bool> session-only: false;
+ callback open-search(); open-search => {
+  root.context-open = false; root.panel = "search";
+  if root.results.length == 0 || root.searched-query != root.search-query { root.searched-query = root.search-query; root.search(root.search-query); }
+ }
+ in property <string> notification; in property <string> notice; in property <bool> session-only: false; in property <string> session-reason;
  callback preferences-changed(); callback fullscreen-requested(); callback study-step(int); callback study-source-changed(int);
  in property <[BookmarkEntry]> bookmarks; callback choose-bookmark(int); callback remove-bookmark(int);
  in-out property <bool> context-open: false;
  in property <string> context-title; in property <float> context-x; in property <float> context-y; in property <bool> bookmark-present: false;
- callback context-ayah(float, float); callback study-selected(); callback listen-selected(); callback bookmark-selected();
+ callback context-ayah(float, float); callback study-selected(); callback listen-selected(int); callback bookmark-selected();
  in property <bool> audio-active: false; in property <bool> audio-paused: false; in property <bool> audio-terminal: false; in property <bool> audio-loading: false; in property <bool> audio-can-seek: false;
  in property <string> audio-title; in property <string> audio-clock; in property <string> audio-status; in property <float> audio-progress: 0;
  in-out property <bool> player-expanded: true; in-out property <float> playback-rate: 1; in-out property <float> volume: 80;
- in property <[string]> reciters; in-out property <int> reciter-index: 0; in-out property <bool> listen-only-ayah: false;
+ in property <[string]> reciters; in-out property <int> reciter-index: 0;
+ // 0 to the end of the surah, 1 this ayah, 2 to the end of the page, 3 the whole surah, 4 to the end of the Quran.
+ in-out property <int> listen-scope: 0;
+ in property <string> app-version;
+ // Keyboard shortcuts: one row per action; capture is the row waiting for keys.
+ in property <[BookmarkEntry]> shortcut-rows; in-out property <int> shortcut-capture: -1; in-out property <string> shortcut-status;
+ callback shortcut-captured(int, string); callback shortcuts-reset();
+ in-out property <int> onboarding-step: 0;
+ in property <int> current-surah: 0;
+ // A recitation that played to its end (not an error) closes its player after a while.
+ in property <bool> audio-finished: false;
+ // The surah being recited is saved for offline listening (for its reciter).
+ in property <bool> current-saved: false;
+ callback download-current();
+ // Where the open verse menu sits, for the tour.
+ private property <float> menu-x: 0; private property <float> menu-y: 0; private property <float> menu-h: 0;
+ private property <bool> listen-more: false;
+ // A panel opened from another one offers a way back to it.
+ private property <string> panel-return: "";
+ // Search runs again on open only when its question changed.
+ private property <string> searched-query: "\u{1}";
  callback play-selected(); callback reciter-changed(int);
+ in property <[string]> surah-names; in-out property <int> download-surah: 0;
+ in property <bool> download-busy: false; in property <float> download-progress: 0; in property <string> download-status: "";
+ in property <[BookmarkEntry]> downloads; in property <string> downloads-storage: "";
+ callback download-start(int); callback download-cancel(); callback download-delete(int); callback downloads-refresh();
  callback audio-toggle(); callback audio-end(); callback audio-seek(float); callback audio-skip(int); callback audio-rate(float); callback audio-volume(float); callback show-recited-ayah();
+ // Find your place: browse by surah (0), page (1) or juz, hizb and rub (2).
+ in-out property <int> browse-tab: 0;
+ in property <SectionChoices> sections-en; in property <SectionChoices> sections-ar;
+ callback sections-needed(); callback go-section(int, int); callback jump-page(string) -> bool;
  in-out property <int> search-mode: 0; in property <bool> search-busy: false; in property <string> search-status; callback search-mode-changed(int);
  callback focus-reading(); focus-reading => { reader-keys.focus(); }
  callback dismiss-overlays(); dismiss-overlays => { root.context-open = false; if root.panel == "study" { root.close-study(); } root.panel = ""; reader-keys.focus(); }
@@ -413,7 +546,9 @@ export component ReaderWindow inherits Window {
  private property <bool> size-tools: false;
  private property <string> displayed-panel: "search";
  private property <string> panel-kind: root.panel == "" ? root.displayed-panel : root.panel;
- changed panel => { if root.panel != "" { root.displayed-panel = root.panel; } root.hover-left(); if root.panel != "search" {reader-keys.focus();} root.render-requested(root.canvas-w, root.canvas-h); }
+ changed panel => { if root.panel != "shortcuts" { root.shortcut-capture = -1; root.shortcut-status = ""; } if root.panel == "" || root.panel == "search" || root.panel == "listen" || root.panel == "settings" || root.panel == "study" { root.panel-return = ""; } if root.panel == "listen" || root.panel == "downloads" { root.downloads-refresh(); } if root.panel == "search" && root.sections-en.juz.length == 0 { root.sections-needed(); } if root.panel != "" { root.displayed-panel = root.panel; } root.hover-left(); if root.panel != "search" && root.onboarding-complete {reader-keys.focus();} if root.study-space == last-study-space { root.render-requested(root.canvas-w, root.canvas-h); } }
+ private property <length> last-study-space: 0px;
+ changed study-space => { root.last-study-space = root.study-space; root.start-book-slide(); }
  private property <bool> player-docked: canvas.width - root.image-w * 1px < 408px || !root.player-expanded || (root.panel != "" && root.panel != "listen");
  in property <image> previous-book;
  in property <image> next-book;
@@ -457,17 +592,15 @@ export component ReaderWindow inherits Window {
   root.render-requested(root.canvas-w, root.canvas-h);
  }
  changed theme => { root.dark = root.theme == 0 || root.theme == 3 || root.theme == 4; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
- changed arabic => { root.context-open = false; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
+ changed arabic => { root.searched-query = "\u{1}"; root.context-open = false; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
  changed render-generation => { root.context-open = false; }
- changed context-open => { if root.context-open { root.hover-left(); } }
+ changed context-open => { if root.context-open { root.hover-left(); } else { root.listen-more = false; } }
  changed study-body => { if root.study-body != "" && root.panel == "" { root.panel = "study"; } }
  forward-focus: reader-keys;
  reader-keys := FocusScope {
   x: 0px; y: 0px; width: root.width; height: root.height;
   preferred-width: 740px; preferred-height: 500px;
   key-pressed(event) => {
-   if !root.onboarding-complete { return reject; }
-   if event.text == Key.F11 { root.fullscreen-requested(); return accept; }
    if event.text == Key.Escape { if root.context-open || root.panel != "" { root.dismiss-overlays(); return accept; } if root.fullscreen { root.fullscreen-requested(); return accept; } }
    if !root.context-open {
     if event.text == Key.LeftArrow && root.panel == "" { root.navigate-key(1, event.repeat); return accept; }
@@ -499,11 +632,11 @@ export component ReaderWindow inherits Window {
       init => {root.nav-x = self.x / 1px; root.nav-w = self.width / 1px;}
       changed x => {root.nav-x = self.x / 1px;} changed width => {root.nav-w = self.width / 1px;}
       HorizontalLayout { spacing: 2px;
-       HeaderAction { layout-order: root.arabic ? 4 : 0; enabled: root.onboarding-complete; leading-icon: 8; rtl: root.arabic; width: 80px; text: root.arabic ? "بحث" : "Search"; selected: root.panel == "search"; clicked => {root.context-open = false; if root.panel == "search" {root.panel = "";} else {root.open-search();}} }
-       HeaderAction { layout-order: root.arabic ? 3 : 1; enabled: root.onboarding-complete; leading-icon: 9; rtl: root.arabic; width: root.audio-active && root.player-docked ? 124px : 80px; quiet: !(root.audio-active && root.player-docked); text: root.audio-active && root.player-docked ? root.audio-title : root.audio-active ? (root.arabic ? "المشغّل" : "Player") : (root.arabic ? "استماع" : "Listen"); hint: root.audio-active ? (root.arabic ? "التلاوة: " : "Recitation: ") + root.audio-title + (root.arabic ? " · فتح المشغّل" : " · Open player") : (root.arabic ? "إعدادات الاستماع والتلاوة" : "Listening and recitation settings"); selected: root.panel == "listen" || (root.audio-active && root.player-docked); clicked => {root.context-open = false; root.player-expanded = true; root.panel = root.panel == "listen" ? "" : "listen";} }
-       if root.audio-active && root.player-docked : HeaderAction { layout-order: 2; width: 30px; symbol: root.audio-paused || root.audio-terminal ? 7 : 6; text: root.audio-terminal ? (root.arabic ? "تشغيل مجددًا" : "Play again") : root.audio-paused ? (root.arabic ? "متابعة التلاوة" : "Resume recitation") : (root.arabic ? "إيقاف التلاوة مؤقتًا" : "Pause recitation"); enabled: root.onboarding-complete && !root.audio-loading; selected: !root.audio-paused && !root.audio-terminal; clicked => {root.audio-toggle();} }
-       if root.audio-active && root.player-docked : HeaderAction { layout-order: root.arabic ? 1 : 3; enabled: root.onboarding-complete; width: 48px; text: root.arabic ? "إنهاء" : "End"; hint: root.arabic ? "إنهاء التلاوة وإغلاق المشغّل" : "End recitation and close the player"; clicked => {root.audio-end();} }
-       HeaderAction { layout-order: root.arabic ? 0 : 4; enabled: root.onboarding-complete; leading-icon: 10; rtl: root.arabic; width: 86px; text: root.arabic ? "الخيارات" : "Options"; selected: root.panel == "settings"; clicked => {root.context-open = false; root.panel = root.panel == "settings" ? "" : "settings";} }
+       HeaderAction { layout-order: root.arabic ? 4 : 0; leading-icon: 8; rtl: root.arabic; width: 80px; text: root.arabic ? "بحث" : "Search"; selected: root.panel == "search"; clicked => {root.context-open = false; if root.panel == "search" {root.panel = "";} else {root.open-search();}} }
+       HeaderAction { layout-order: root.arabic ? 3 : 1; leading-icon: 9; rtl: root.arabic; width: root.audio-active && root.player-docked ? 124px : 80px; quiet: !(root.audio-active && root.player-docked); text: root.audio-active && root.player-docked ? root.audio-title : root.audio-active ? (root.arabic ? "المشغّل" : "Player") : (root.arabic ? "استماع" : "Listen"); hint: root.audio-active ? (root.arabic ? "التلاوة: " : "Recitation: ") + root.audio-title + (root.arabic ? " · فتح المشغّل" : " · Open player") : (root.arabic ? "إعدادات الاستماع والتلاوة" : "Listening and recitation settings"); selected: root.panel == "listen" || (root.audio-active && root.player-docked); clicked => {root.context-open = false; root.player-expanded = true; root.panel = root.panel == "listen" ? "" : "listen";} }
+       if root.audio-active && root.player-docked : HeaderAction { layout-order: 2; width: 30px; symbol: root.audio-paused || root.audio-terminal ? 7 : 6; text: root.audio-terminal ? (root.arabic ? "تشغيل مجددًا" : "Play again") : root.audio-paused ? (root.arabic ? "متابعة التلاوة" : "Resume recitation") : (root.arabic ? "إيقاف التلاوة مؤقتًا" : "Pause recitation"); enabled: !root.audio-loading; selected: !root.audio-paused && !root.audio-terminal; clicked => {root.audio-toggle();} }
+       if root.audio-active && root.player-docked : HeaderAction { layout-order: root.arabic ? 1 : 3; width: 48px; text: root.arabic ? "إنهاء" : "End"; hint: root.arabic ? "إنهاء التلاوة وإغلاق المشغّل" : "End recitation and close the player"; clicked => {root.audio-end();} }
+       HeaderAction { layout-order: root.arabic ? 0 : 4; leading-icon: 10; rtl: root.arabic; width: 86px; text: root.arabic ? "الخيارات" : "Options"; selected: root.panel == "settings"; clicked => {root.context-open = false; root.panel = root.panel == "settings" ? "" : "settings";} }
       }
      }
      Rectangle { x: parent.width - 132px; y: 0px; height: parent.height; width: 132px; background: transparent;
@@ -520,113 +653,130 @@ export component ReaderWindow inherits Window {
     background: UiColors.canvas; vertical-stretch: 1; clip: true;
     changed width => { root.render-requested(self.width / 1px, self.height / 1px); }
     changed height => { root.render-requested(self.width / 1px, self.height / 1px); }
-    // Page edges as in the WebView reader: copies of the page shifted outward
-    // by 3, 6 and 8 px at the sides and 3 and 6 px below, each a step closer to
-    // the edge colour, so a few pages show behind the open book. Each copy is
-    // drawn as a ring, painting only the band that can show around the page.
-    if root.book-w > 0 : Rectangle {
-     x: (root.canvas-x + root.image-x + root.book-x) * 1px; y: (root.image-y + root.book-y) * 1px;
-     width: root.book-w * 1px; height: root.book-h * 1px;
-     for sheet in [
-      { side: 0, below: 6, tone: 0.66 },
-      { side: 0, below: 3, tone: 0.82 },
-      { side: 8, below: 0, tone: 0.58 },
-      { side: 6, below: 0, tone: 0.72 },
-      { side: 3, below: 0, tone: 0.86 },
-     ] : Rectangle {
-      x: -sheet.side * 1px; y: sheet.below * 1px;
-      width: parent.width + sheet.side * 2px; height: parent.height;
-      border-radius: 12px;
-      border-width: (sheet.side + sheet.below + 6) * 1px;
-      border-color: UiColors.surface.mix(UiColors.edge, sheet.tone);
+    book-layer := Rectangle {
+     x: root.slide-dx * 1px; y: root.slide-dy * 1px; width: canvas.width; height: canvas.height;
+     transform-origin: {x: 0px, y: 0px}; transform-scale: root.slide-s;
+     // Page edges as in the WebView reader: copies of the page shifted outward
+     // by 3, 6 and 8 px at the sides and 3 and 6 px below, each a step closer to
+     // the edge colour, so a few pages show behind the open book. Each copy is
+     // drawn as a ring, painting only the band that can show around the page.
+     if root.book-w > 0 : Rectangle {
+      x: (root.raster-canvas-x + root.image-x + root.book-x) * 1px; y: (root.image-y + root.book-y) * 1px;
+      width: root.book-w * 1px; height: root.book-h * 1px;
+      for sheet in [
+       { side: 0, below: 6, tone: 0.66 },
+       { side: 0, below: 3, tone: 0.82 },
+       { side: 8, below: 0, tone: 0.58 },
+       { side: 6, below: 0, tone: 0.72 },
+       { side: 3, below: 0, tone: 0.86 },
+      ] : Rectangle {
+       // Side sheets start a little lower, as page edges under the top page do,
+       // so their rounded corners step down instead of bunching at the corner.
+       x: -sheet.side * 1px; y: (sheet.below + sheet.side * 0.6) * 1px;
+       width: parent.width + sheet.side * 2px; height: parent.height - sheet.side * 0.6px;
+       border-radius: 12px;
+       border-width: (sheet.side + sheet.below + 6) * 1px;
+       border-color: UiColors.surface.mix(UiColors.edge, sheet.tone);
+      }
      }
-    }
-    // Page rasters are transparent outside the rounded paper frame (see
-    // clear_outside_frame), so the sheets show through without a per-frame clip.
-    Rectangle {
-     x: (root.canvas-x + root.image-x + (root.book-w > 0 ? root.book-x : 0)) * 1px;
-     y: (root.image-y + (root.book-w > 0 ? root.book-y : 0)) * 1px;
-     width: (root.book-w > 0 ? root.book-w : root.image-w) * 1px;
-     height: (root.book-w > 0 ? root.book-h : root.image-h) * 1px;
+     // Page rasters are transparent outside the rounded paper frame (see
+     // clear_outside_frame), so the sheets show through without a per-frame clip.
      Rectangle {
-      x: -(root.book-w > 0 ? root.book-x : 0) * 1px; y: -(root.book-w > 0 ? root.book-y : 0) * 1px;
-      width: root.image-w * 1px; height: root.image-h * 1px;
-      Image {
-       x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
-       source: root.book-image; image-fit: fill; opacity: root.book-opacity;
-       animate opacity { duration: 100ms; enabled: root.motion-enabled; }
-       accessible-label: root.arabic ? "صفحات المصحف؛ اختر آية أو اضغط بالزر الأيمن لخياراتها" : "Mushaf pages; select a verse or right-click for its actions";
-      }
-      if !root.turn-running && root.turn-blend > 0 && root.previous-book.width > 0 : Image {
-       x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
-       source: root.previous-book; image-fit: fill; opacity: root.turn-blend;
-      }
-      if root.turn-running && root.previous-book.width > 0 : Rectangle {
-       x: 0px; y: 0px;
-       width: root.image-w * 1px; height: root.image-h * 1px; clip: true;
-       // Leave the settled original texture untouched. Paint the destination
-       // only on the lifted side of the crease, within the turning leaf.
-       if root.turn-progress > 0.002 : Rectangle {
-        x: root.turn-single || root.turn-direction > 0 ? 0px : root.image-w / 2 * 1px;
-        width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: parent.height;
-        clip: true;
-        FoldClip {
-         plane-x: root.fold-plane-x - parent.x / 1px; plane-y: root.fold-plane-y; plane-angle: (root.fold-plane-angle + 180) * 1deg;
-         extent: max(root.image-w,root.image-h) * 4px;
-         // Absolute texture coordinates: implicit centering in the oversized
-         // clipping container leaves the revealed part showing the old page.
-         Image { y: 0px; x: root.turn-single || root.turn-direction > 0 ? 0px : -root.image-w / 2 * 1px; width: root.image-w * 1px; height: root.image-h * 1px; source: root.next-book; image-fit: fill; }
-        }
-        // The lifted leaf shades the page it is revealing, fading away from the crease.
-        if root.fold-shading : Rectangle {
-         x: root.book-x * 1px - parent.x; y: root.book-y * 1px;
-         width: root.book-w * 1px; height: root.book-h * 1px;
-         // A plain rectangle clip: a rounded one costs a mask on every frame.
+      x: (root.raster-canvas-x + root.image-x + (root.book-w > 0 ? root.book-x : 0)) * 1px;
+      y: (root.image-y + (root.book-w > 0 ? root.book-y : 0)) * 1px;
+      width: (root.book-w > 0 ? root.book-w : root.image-w) * 1px;
+      height: (root.book-w > 0 ? root.book-h : root.image-h) * 1px;
+      Rectangle {
+       x: -(root.book-w > 0 ? root.book-x : 0) * 1px; y: -(root.book-w > 0 ? root.book-y : 0) * 1px;
+       width: root.image-w * 1px; height: root.image-h * 1px;
+       Image {
+        x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
+        source: root.book-image; image-fit: fill; opacity: root.book-opacity;
+        animate opacity { duration: 100ms; enabled: root.motion-enabled; }
+        accessible-label: root.arabic ? "صفحات المصحف؛ اختر آية أو اضغط بالزر الأيمن لخياراتها" : "Mushaf pages; select a verse or right-click for its actions";
+       }
+       if !root.turn-running && root.turn-blend > 0 && root.previous-book.width > 0 : Image {
+        x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
+        source: root.previous-book; image-fit: fill; opacity: root.turn-blend;
+       }
+       if root.turn-running && root.previous-book.width > 0 : Rectangle {
+        x: 0px; y: 0px;
+        width: root.image-w * 1px; height: root.image-h * 1px; clip: true;
+        // Leave the settled original texture untouched. Paint the destination
+        // only on the lifted side of the crease, within the turning leaf.
+        if root.turn-progress > 0.002 : Rectangle {
+         x: root.turn-single || root.turn-direction > 0 ? 0px : root.image-w / 2 * 1px;
+         width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: parent.height;
          clip: true;
-         Rectangle {
-          private property <angle> angle: root.fold-plane-angle * 1deg;
-          width: (root.image-w + root.image-h) * 1.5px; height: 32px;
-          x: (root.fold-plane-x - root.book-x) * 1px - Math.cos(self.angle) * self.width / 2 + Math.sin(self.angle) * self.height;
-          y: (root.fold-plane-y - root.book-y) * 1px - Math.sin(self.angle) * self.width / 2 - Math.cos(self.angle) * self.height;
-          transform-origin: {x:0px,y:0px}; transform-rotation: self.angle;
-          background: @linear-gradient(0deg, #000000, transparent); opacity: Math.sin(root.turn-progress * 180deg) * 0.24;
+         FoldClip {
+          plane-x: root.fold-plane-x - parent.x / 1px; plane-y: root.fold-plane-y; plane-angle: (root.fold-plane-angle + 180) * 1deg;
+          extent: max(root.image-w,root.image-h) * 4px;
+          // Absolute texture coordinates: implicit centering in the oversized
+          // clipping container leaves the revealed part showing the old page.
+          Image { y: 0px; x: root.turn-single || root.turn-direction > 0 ? 0px : -root.image-w / 2 * 1px; width: root.image-w * 1px; height: root.image-h * 1px; source: root.next-book; image-fit: fill; }
+         }
+         // The lifted leaf shades the page it is revealing, fading away from the crease.
+         if root.fold-shading : Rectangle {
+          x: root.book-x * 1px - parent.x; y: root.book-y * 1px;
+          width: root.book-w * 1px; height: root.book-h * 1px;
+          // A plain rectangle clip: a rounded one costs a mask on every frame.
+          clip: true;
+          Rectangle {
+           private property <angle> angle: root.fold-plane-angle * 1deg;
+           width: (root.image-w + root.image-h) * 1.5px; height: 32px;
+           x: (root.fold-plane-x - root.book-x) * 1px - Math.cos(self.angle) * self.width / 2 + Math.sin(self.angle) * self.height;
+           y: (root.fold-plane-y - root.book-y) * 1px - Math.sin(self.angle) * self.width / 2 - Math.cos(self.angle) * self.height;
+           transform-origin: {x:0px,y:0px}; transform-rotation: self.angle;
+           background: @linear-gradient(0deg, #000000, transparent); opacity: Math.sin(root.turn-progress * 180deg) * 0.24;
+          }
          }
         }
-       }
-       FoldClip {
-        plane-x: root.fold-plane-x; plane-y: root.fold-plane-y; plane-angle: root.fold-plane-angle * 1deg;
-        extent: max(root.image-w,root.image-h) * 4px;
-        Rectangle {
-         x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
-         width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: root.image-h * 1px;
-         transform-origin: {x:0px,y:0px}; transform-rotation: root.fold-back-angle * 1deg;
-         clip: true;
-         Image { y: 0px; x: !root.turn-single && root.turn-direction > 0 ? -root.image-w / 2 * 1px : 0px; width: root.image-w * 1px; height: parent.height; source: root.next-book; image-fit: fill; }
-         // Soft light across the back of the sheet, so it reads as curved paper.
-         if root.fold-shading && root.turn-direction > 0 : Rectangle { background: @linear-gradient(270deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
-         if root.fold-shading && root.turn-direction <= 0 : Rectangle { background: @linear-gradient(90deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
+        FoldClip {
+         plane-x: root.fold-plane-x; plane-y: root.fold-plane-y; plane-angle: root.fold-plane-angle * 1deg;
+         extent: max(root.image-w,root.image-h) * 4px;
+         Rectangle {
+          x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
+          width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: root.image-h * 1px;
+          transform-origin: {x:0px,y:0px}; transform-rotation: root.fold-back-angle * 1deg;
+          clip: true;
+          Image { y: 0px; x: !root.turn-single && root.turn-direction > 0 ? -root.image-w / 2 * 1px : 0px; width: root.image-w * 1px; height: parent.height; source: root.next-book; image-fit: fill; }
+          // Soft light across the back of the sheet, so it reads as curved paper.
+          if root.fold-shading && root.turn-direction > 0 : Rectangle { background: @linear-gradient(270deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
+          if root.fold-shading && root.turn-direction <= 0 : Rectangle { background: @linear-gradient(90deg, #00000014 0%, transparent 30%, #ffffff0d 100%); }
+         }
         }
+        // Preparation never replaces a visible face before the corner moves.
+        if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
        }
-       // Preparation never replaces a visible face before the corner moves.
-       if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
+      }
+     }
+     if root.book-w > 0 && !root.turn-running : Rectangle {
+      x: (root.raster-canvas-x + root.image-x + root.book-x + 6) * 1px; y: (root.image-y + root.book-y + 6) * 1px;
+      width: (root.book-w - 12) * 1px; height: (root.book-h - 12) * 1px;
+      border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.45);
+     }
+     if !root.context-open && !root.render-busy && root.hover-rects.length > 0 : Rectangle {
+      background: transparent;
+      for patch in root.hover-patches : Image {
+       x: (root.raster-canvas-x + root.image-x + patch.x) * 1px; y: (root.image-y + patch.y) * 1px;
+       width: patch.w * 1px; height: patch.h * 1px; source: patch.image; image-fit: fill;
       }
      }
     }
-    if root.book-w > 0 && !root.turn-running : Rectangle {
-     x: (root.canvas-x + root.image-x + root.book-x + 6) * 1px; y: (root.image-y + root.book-y + 6) * 1px;
-     width: (root.book-w - 12) * 1px; height: (root.book-h - 12) * 1px;
-     border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.45);
-    }
-    if !root.context-open && !root.render-busy && root.hover-rects.length > 0 : Rectangle {
-     background: transparent;
-     for patch in root.hover-patches : Image {
-      x: (root.canvas-x + root.image-x + patch.x) * 1px; y: (root.image-y + patch.y) * 1px;
-      width: patch.w * 1px; height: patch.h * 1px; source: patch.image; image-fit: fill;
+    // When the glide has landed: finish at once if the current raster already
+    // fits, otherwise ask for the sharp redraw and finish when it arrives.
+    Timer {
+     interval: 30ms; running: root.book-sliding && !root.slide-awaiting;
+     triggered => {
+      if root.slide-raw >= 1 {
+       if root.slide-settling || root.raster-at-target() { root.book-sliding = false; root.slide-settling = false; }
+       else { root.slide-awaiting = true; root.render-requested(root.canvas-w, root.canvas-h); }
+      }
      }
     }
     TouchArea {
      x: root.canvas-x * 1px; width: root.canvas-w * 1px;
-     enabled: root.drag-active || !root.render-busy;
+     enabled: !root.book-sliding && (root.drag-active || !root.render-busy);
      private property <length> drag-start-x;
      private property <int> drag-direction: 1;
      private property <bool> edge-click: false;
@@ -640,7 +790,10 @@ export component ReaderWindow inherits Window {
       if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
        self.edge-click = false;
        if !root.context-open && self.mouse-x / 1px >= root.image-x && self.mouse-x / 1px <= root.image-x + root.image-w && self.mouse-y / 1px >= root.image-y && self.mouse-y / 1px <= root.image-y + root.image-h {
-        if self.mouse-x / 1px < root.image-x + 28 || self.mouse-x / 1px > root.image-x + root.image-w - 28 || self.mouse-y / 1px < root.image-y + 24 || self.mouse-y / 1px > root.image-y + root.image-h - 24 {
+        // Page edges, and a generous area around each outer corner of the book.
+        if self.mouse-x / 1px < root.image-x + 28 || self.mouse-x / 1px > root.image-x + root.image-w - 28 || self.mouse-y / 1px < root.image-y + 24 || self.mouse-y / 1px > root.image-y + root.image-h - 24
+           || ((self.mouse-x / 1px < root.image-x + root.book-x + 110 || self.mouse-x / 1px > root.image-x + root.book-x + root.book-w - 110)
+               && (self.mouse-y / 1px < root.image-y + root.book-y + 130 || self.mouse-y / 1px > root.image-y + root.book-y + root.book-h - 130)) {
          self.edge-click = true; self.drag-start-x = self.mouse-x;
          self.drag-direction = self.mouse-x / 1px < root.image-x + root.image-w / 2 ? 1 : -1;
          root.turn-top = self.mouse-y / 1px < root.image-y + root.image-h / 2;
@@ -648,7 +801,7 @@ export component ReaderWindow inherits Window {
         }
        }
       }
-      if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.drag-active { root.end-page-drag(root.drag-progress >= 0.35 || abs(self.mouse-x - self.drag-start-x) < 4px); }
+      if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.drag-active { root.end-page-drag(root.drag-progress >= 0.2 || abs(self.mouse-x - self.drag-start-x) < 4px); }
       if event.kind == PointerEventKind.cancel && root.drag-active { root.end-page-drag(false); }
       if event.button == PointerEventButton.right && event.kind == PointerEventKind.up { reader-keys.focus(); root.context-ayah(self.mouse-x / 1px, self.mouse-y / 1px); }
      }
@@ -662,11 +815,13 @@ export component ReaderWindow inherits Window {
     side := Rectangle {
      visible: root.panel != "" || self.opacity > 0.01;
      width: root.panel-kind == "search" ? min(620px, canvas.width - 40px) : root.panel-kind == "study" ? min(344px, canvas.width * 0.4 - 20px) : min(344px, canvas.width - 24px);
-     height: root.panel-kind == "search" ? min(560px, canvas.height - 36px) : canvas.height - 20px;
+     height: root.panel-kind == "search" ? min(root.search-query == "" && root.browse-tab != 0 ? 340px : 560px, canvas.height - 36px) : canvas.height - 20px;
+     animate height { duration: 140ms; easing: ease-out; enabled: root.motion-enabled && root.panel == "search" && self.reveal > 0.99; }
      // Animate an edge-relative reveal, never an old hidden panel's coordinates.
      private property <float> reveal: root.panel == "" ? 0 : 1;
-     animate reveal { duration: root.panel-kind == "search" ? 170ms : 150ms; easing: ease-out; enabled: root.motion-enabled; }
-     y: root.panel-kind == "search" ? 12px - (1 - self.reveal) * (self.height + 20px) : 12px;
+     animate reveal { duration: root.panel-kind == "search" ? 150ms : root.panel-kind == "study" ? 240ms : 150ms; easing: ease-out; enabled: root.motion-enabled; }
+     // Search fades in with a short drop instead of sliding its whole height.
+     y: root.panel-kind == "search" ? 12px - (1 - self.reveal) * 14px : 12px;
      x: root.panel-kind == "search" ? (canvas.width - self.width) / 2 : root.arabic ? canvas.width - self.width - 10px + (1 - self.reveal) * (self.width + 20px) : 10px - (1 - self.reveal) * (self.width + 20px);
      opacity: self.reveal;
      border-radius: 12px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface; clip: true;
@@ -674,88 +829,191 @@ export component ReaderWindow inherits Window {
       padding: root.panel-kind == "search" ? 18px : 14px; spacing: 12px;
       HorizontalLayout {
        height: 28px; spacing: 8px;
-       Text { layout-order: root.arabic ? 2 : 0; horizontal-stretch: 1; text: root.panel-kind == "search" ? (root.arabic ? "البحث في القرآن" : "Search Quran") : root.panel-kind == "study" ? (root.arabic ? "تفسير الآية" : "Read Tafsir") : root.panel-kind == "bookmarks" ? (root.arabic ? "العلامات المحفوظة" : "Saved bookmarks") : root.panel-kind == "listen" ? (root.arabic ? "الاستماع" : "Listening") : (root.arabic ? "خيارات القراءة" : "Reading options"); color: UiColors.ink; font-size: root.panel-kind == "search" ? 18px : 16px; font-weight: 600; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; }
+       if root.panel-return != "" && root.panel != "" : Action { layout-order: root.arabic ? 3 : -1; width: 28px; min-height: 28px; max-height: 28px; quiet: true; symbol: root.arabic ? 4 : 3; text: root.arabic ? "رجوع" : "Back"; clicked => { root.panel = root.panel-return; } }
+       Text { layout-order: root.arabic ? 2 : 0; horizontal-stretch: 1; text: root.panel-kind == "search" ? (root.arabic ? "البحث في القرآن" : "Search the Quran") : root.panel-kind == "study" ? (root.arabic ? "تفسير الآية" : "Read Tafsir") : root.panel-kind == "bookmarks" ? (root.arabic ? "العلامات المحفوظة" : "Saved bookmarks") : root.panel-kind == "listen" ? (root.arabic ? "الاستماع" : "Listening") : root.panel-kind == "downloads" ? (root.arabic ? "إدارة التنزيلات" : "Download manager") : root.panel-kind == "shortcuts" ? (root.arabic ? "اختصارات لوحة المفاتيح" : "Keyboard shortcuts") : (root.arabic ? "الخيارات" : "Options"); color: UiColors.ink; font-size: root.panel-kind == "search" ? 18px : 16px; font-weight: 600; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; }
        if root.fullscreen && root.audio-active && root.player-docked && (root.panel-kind == "search" || root.panel-kind == "settings") : Action { layout-order: 1; width: 36px; symbol: root.audio-paused || root.audio-terminal ? 7 : 6; quiet: true; enabled: !root.audio-loading; text: root.audio-terminal ? (root.arabic ? "تشغيل مجددًا" : "Play again") : root.audio-paused ? (root.arabic ? "متابعة التلاوة" : "Resume recitation") : (root.arabic ? "إيقاف مؤقت" : "Pause recitation"); clicked => { root.audio-toggle(); } }
        Action { layout-order: root.arabic ? 0 : 2; width: 28px; min-height: 28px; max-height: 28px; quiet: true; symbol: 12; text: root.arabic ? "إغلاق" : "Close"; clicked => { root.dismiss-overlays(); } }
       }
       if root.panel-kind == "search" : VerticalLayout {
        spacing: 10px;
-       search-field := LineEdit { preferred-height: 44px; min-height: 44px; max-height: 44px; horizontal-stretch: 1; text <=> root.search-query; placeholder-text: root.arabic ? "ابحث عن آية أو سورة أو رقم صفحة…" : "Search an ayah, surah or page number…"; horizontal-alignment: root.arabic ? right : left; accessible-label: root.arabic ? "البحث في المصحف" : "Search the Mushaf";
-        init => {root.search-field-height = self.height / 1px; if root.panel == "search" {self.focus();}}
-        changed height => {root.search-field-height = self.height / 1px;}
-        private property <bool> search-visible: root.panel == "search";
-        changed search-visible => {if self.search-visible {self.focus();}}
-        edited => {root.search(self.text);}
-        accepted => {if root.search-active-index >= 0 && !root.search-busy {if root.choose-result(root.search-active-index) {root.panel = "";reader-keys.focus();}} else {root.search(self.text);} }
-        key-pressed(event) => {
-         if event.text == Key.Escape {root.dismiss-overlays();return accept;}
-         if !root.search-busy && root.results.length > 0 {
-          if event.text == Key.DownArrow {root.search-active-index = min(root.results.length - 1, root.search-active-index + 1);return accept;}
-          if event.text == Key.UpArrow {root.search-active-index = max(0, root.search-active-index - 1);return accept;}
+       // The field draws its own quiet border: the standard focus underline is clipped away.
+       Rectangle { preferred-height: 44px; min-height: 44px; max-height: 44px; border-radius: 8px; clip: true; background: UiColors.field;
+        search-field := LineEdit { x: -1px; y: -1px; width: parent.width + 2px; height: parent.height + 4px; text <=> root.search-query; placeholder-text: ""; horizontal-alignment: root.arabic ? right : left; accessible-label: root.arabic ? "البحث في المصحف" : "Search the Mushaf";
+         init => {root.search-field-height = parent.height / 1px; if root.panel == "search" {self.focus();}}
+         private property <bool> search-visible: root.panel == "search";
+         // The panel may still be hidden when it opens, which drops a focus request:
+         // ask again once it is showing.
+         changed search-visible => {if self.search-visible {self.focus(); focus-again.running = true;}}
+         edited => {root.searched-query = self.text; root.search(self.text);}
+         accepted => {if root.search-active-index >= 0 && !root.search-busy {if root.choose-result(root.search-active-index) {root.panel = "";reader-keys.focus();}} else if root.jump-page(self.text) {root.panel = "";reader-keys.focus();} else if root.results.length > 0 && !root.search-busy && root.search-query != "" {if root.choose-result(0) {root.panel = "";reader-keys.focus();}} }
+         key-pressed(event) => {
+          if event.text == Key.Escape {root.dismiss-overlays();return accept;}
+          if !root.search-busy && root.results.length > 0 && (root.search-query != "" || root.browse-tab == 0) {
+           if event.text == Key.DownArrow {root.search-active-index = min(root.results.length - 1, root.search-active-index + 1);return accept;}
+           if event.text == Key.UpArrow {root.search-active-index = max(0, root.search-active-index - 1);return accept;}
+          }
+          return reject;
          }
-         return reject;
         }
+        if root.search-query == "" : Text { x: 13px; width: parent.width - 26px; height: parent.height; text: root.arabic ? "ابحث بكلمات أو آية، أو أدخل رقم صفحة مثل 255" : "Search words or an ayah, or enter a page such as 255"; color: UiColors.muted.with-alpha(0.6); font-size: 14px; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; }
+        Rectangle { border-radius: 8px; border-width: 1px; border-color: search-field.has-focus ? UiColors.muted.with-alpha(0.7) : UiColors.edge; }
+        focus-again := Timer { interval: 50ms; running: false; private property <int> tries: 0; triggered => { self.tries += 1; if root.panel == "search" && !search-field.has-focus { search-field.focus(); } if self.tries >= 8 || root.panel != "search" { self.running = false; self.tries = 0; } } }
        }
-       HorizontalLayout { height: 20px; spacing: 10px;
+       if root.search-query == "" : HorizontalLayout { height: 20px; spacing: 10px;
         Rectangle { layout-order: 0; horizontal-stretch: 1; Rectangle { y: parent.height / 2; height: 1px; background: UiColors.edge; } }
-        Text { layout-order: 1; text: root.arabic ? "التصفح والانتقال" : "Browse and go to"; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
+        Text { layout-order: 1; text: root.arabic ? "التصفح والانتقال" : "Browse and jump"; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
         Rectangle { layout-order: 2; horizontal-stretch: 1; Rectangle { y: parent.height / 2; height: 1px; background: UiColors.edge; } }
        }
-       Rectangle { preferred-height: 44px; min-height: 44px; max-height: 44px; border-radius: 9px; background: UiColors.field; border-width: 1px; border-color: UiColors.edge;
+       if root.search-query == "" : Rectangle { preferred-height: 44px; min-height: 44px; max-height: 44px; border-radius: 9px; background: UiColors.field; border-width: 1px; border-color: UiColors.edge;
         HorizontalLayout {padding: 4px; spacing: 4px;
-         for tab[i] in (root.arabic ? ["الكل", "السور", "الصفحات", "الأجزاء", "الأحزاب", "الأرباع"] : ["All", "Surahs", "Pages", "Juz", "Hizb", "Quarters"]) : SearchTab {
-          layout-order: root.arabic ? 5 - i : i; horizontal-stretch: 1; text: tab; selected: root.search-mode == i; clicked => {root.search-mode-changed(i);search-field.focus();}
+         for tab[i] in (root.arabic ? ["السورة", "الصفحة", "الجزء والحزب والربع"] : ["Surah", "Page", "Juz, Hizb & Rub"]) : SearchTab {
+          layout-order: root.arabic ? 2 - i : i; horizontal-stretch: 1; width: (parent.width - 16px) / 3; text: tab; selected: root.browse-tab == i; clicked => {root.browse-tab = i; root.search-active-index = -1;}
          }
         }
        }
-       HorizontalLayout {height: 18px;
-        Text {layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.search-query == "" && (root.search-mode == 0 || root.search-mode == 1) ? (root.arabic ? "السور" : "Surahs") : (root.arabic ? "النتائج" : "Results"); color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left;}
+       if root.search-query == "" && root.browse-tab == 1 : VerticalLayout { spacing: 6px;
+        Text { text: root.arabic ? "الصفحة (1–604)" : "Page (1–604)"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+        HorizontalLayout { spacing: 8px; height: 40px;
+         Rectangle { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; border-radius: 8px; clip: true; background: UiColors.field;
+          page-field := LineEdit { x: -1px; y: -1px; width: parent.width + 2px; height: parent.height + 4px; input-type: number; text: ""; placeholder-text: ""; horizontal-alignment: root.arabic ? right : left; accessible-label: root.arabic ? "رقم الصفحة" : "Page number";
+           init => { self.focus(); }
+           accepted => { if root.jump-page(self.text) { root.panel = ""; reader-keys.focus(); } }
+           key-pressed(event) => { if event.text == Key.Escape {root.dismiss-overlays();return accept;} return reject; }
+          }
+          if page-field.text == "" : Text { x: 13px; width: parent.width - 26px; height: parent.height; text: root.arabic ? "مثلًا 255" : "e.g. 255"; color: UiColors.muted.with-alpha(0.55); font-size: 14px; font-italic: !root.arabic; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; }
+          Rectangle { border-radius: 8px; border-width: 1px; border-color: page-field.has-focus ? UiColors.muted.with-alpha(0.7) : UiColors.edge; }
+         }
+         Action { layout-order: root.arabic ? 0 : 1; width: 72px; primary: true; text: root.arabic ? "انتقال" : "Go"; clicked => { if root.jump-page(page-field.text) { root.panel = ""; reader-keys.focus(); } } }
+        }
+        Text { text: root.arabic ? "أنت الآن في الصفحة " + root.page : "You are on page " + root.page; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+       }
+       if root.search-query == "" && root.browse-tab == 2 : HorizontalLayout { spacing: 10px;
+        for kind[k] in (root.arabic ? ["الجزء", "الحزب", "الربع"] : ["Juz", "Hizb", "Rub"]) : VerticalLayout { layout-order: root.arabic ? 2 - k : k; spacing: 6px; horizontal-stretch: 1;
+         Text { text: kind; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+         ChoiceField {
+          rtl: root.arabic; label: kind; current-index: -1; numbered: true;
+          placeholder: root.arabic ? (k == 0 ? "اختر الجزء أو اكتب رقمه" : k == 1 ? "اختر الحزب أو اكتب رقمه" : "اختر الربع أو اكتب رقمه") : (k == 0 ? "Select or type a juz" : k == 1 ? "Select or type a hizb" : "Select or type a rub");
+          model: k == 0 ? (root.arabic ? root.sections-ar.juz : root.sections-en.juz) : k == 1 ? (root.arabic ? root.sections-ar.hizb : root.sections-en.hizb) : (root.arabic ? root.sections-ar.rub : root.sections-en.rub);
+          selected(i) => { self.current-index = -1; root.go-section(k, i); root.panel = ""; reader-keys.focus(); }
+         }
+        }
+       }
+       if root.search-query != "" || root.browse-tab == 0 : HorizontalLayout {height: 18px;
+        Text {layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.search-query == "" ? (root.arabic ? "السور" : "Surahs") : (root.arabic ? "النتائج" : "Results"); color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left;}
         if root.search-busy : Text {layout-order: root.arabic ? 0 : 1; text: root.arabic ? "جارٍ البحث…" : "Searching…"; color: UiColors.muted; font-size: 11px;}
        }
-       search-scroll := PanelScroll {vertical-stretch: 1; reset-key: root.search-query + root.search-mode;
+       if root.search-query != "" || root.browse-tab == 0 : search-scroll := PanelScroll {vertical-stretch: 1; reset-key: root.search-query + root.search-mode;
+        // Browsing opens with the surah being read in view.
+        private property <bool> browsing: root.search-query == "" && root.panel == "search" && root.results.length >= 114;
+        // Wait a moment for the rows to be laid out before scrolling to them.
+        changed browsing => { if self.browsing && root.current-surah > 0 { reveal-current.running = true; } }
+        reveal-current := Timer { interval: 60ms; running: false; triggered => { self.running = false; search-scroll.reveal(max(0, root.current-surah - 2) * 72px, 3 * 72px); } }
+        init => { if self.browsing && root.current-surah > 0 { self.reveal(max(0, root.current-surah - 2) * 72px, 3 * 72px); } }
         VerticalLayout {spacing: 4px;
-         for result[index] in root.results : SearchResult {entry: result; rtl: root.arabic; selected: root.search-active-index == index; enabled: !root.search-busy;
+         for result[index] in root.results : SearchResult {entry: result; rtl: root.arabic; selected: root.search-active-index == index; enabled: !root.search-busy; current: root.search-query == "" && index + 1 == root.current-surah;
           init => {if index == 0 {root.search-result-height = self.height / 1px;}}
           changed height => {if index == 0 {root.search-result-height = self.height / 1px;}}
           changed selected => {if self.selected {search-scroll.reveal(self.y, self.height);}}
           clicked => {if root.choose-result(index) {root.panel = ""; reader-keys.focus();}}
          }
-         if root.results.length == 0 && root.search-status == "" : Text {height: 46px; vertical-alignment: top; text: root.search-busy ? (root.arabic ? "جارٍ البحث…" : "Searching…") : root.search-query == "" ? (root.arabic ? "اكتب للبحث، أو اختر قسمًا للتصفح." : "Type to search, or choose a category to browse.") : (root.arabic ? "لا توجد نتائج مطابقة." : "No matching results."); color: UiColors.muted; font-size: 13px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left;}
+         if root.results.length == 0 && root.search-status == "" : Text {height: 46px; vertical-alignment: top; text: root.search-busy ? (root.arabic ? "جارٍ البحث…" : "Searching…") : (root.arabic ? "لا توجد نتائج مطابقة." : "No matching results."); color: UiColors.muted; font-size: 13px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left;}
          if root.search-status != "" && !root.search-busy : Text {text: root.search-status; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left;}
          Rectangle {background: transparent; vertical-stretch: 1;}
         }
        }
-      }      if root.panel-kind == "settings" : PanelScroll {
-       VerticalLayout {spacing: 12px;
+       if root.search-query == "" && root.browse-tab != 0 : Rectangle { vertical-stretch: 1; }
+      }
+      if root.panel-kind == "settings" : PanelScroll {
+       VerticalLayout {spacing: 10px;
+        if root.session-only : Rectangle { height: notice-text.preferred-height + 20px; border-radius: 8px; background: UiColors.selected.with-alpha(0.5); border-width: 1px; border-color: UiColors.accent.with-alpha(0.5);
+         notice-text := Text { x: 10px; y: 10px; width: parent.width - 20px; text: root.session-reason != "" ? root.session-reason : (root.arabic ? "تُطبّق التغييرات لهذه الجلسة فقط؛ تعذّر حفظ الإعدادات." : "Changes apply to this session only; settings could not be saved."); color: UiColors.ink; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        }
+        SectionHeading {text: root.arabic ? "عام" : "General"; horizontal-alignment: root.arabic ? right : left;}
         SettingsGroup {
-        Text { text: root.arabic ? "اللغة" : "Language"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "لغة التطبيق" : "Application language"; model: ["العربية", "English"]; current-index: root.arabic ? 0 : 1; selected(i) => { root.arabic = i == 0; reader-keys.focus(); } }
-        Text { text: root.arabic ? "المظهر" : "Appearance"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "مظهر التطبيق" : "Application theme"; model: root.arabic ? ["رمادي داكن", "فاتح", "ورقي", "أسود", "كحلي"] : ["Dark gray", "Light", "Sepia", "Pure black", "Navy night"]; current-index <=> root.theme; selected(i) => { root.theme = i; reader-keys.focus(); } }
+         SettingRow { label: root.arabic ? "اللغة" : "Language"; rtl: root.arabic;
+          ChoiceField { layout-order: root.arabic ? 0 : 1; width: 150px; rtl: root.arabic; label: root.arabic ? "لغة التطبيق" : "Application language"; model: ["العربية", "English"]; current-index: root.arabic ? 0 : 1; selected(i) => { root.arabic = i == 0; reader-keys.focus(); } }
+         }
+         SettingRow { label: root.arabic ? "المظهر" : "Theme"; rtl: root.arabic;
+          ChoiceField { layout-order: root.arabic ? 0 : 1; width: 150px; rtl: root.arabic; label: root.arabic ? "مظهر التطبيق" : "Application theme"; model: root.arabic ? ["رمادي داكن", "فاتح", "ورقي", "أسود", "كحلي"] : ["Dark gray", "Light", "Sepia", "Pure black", "Navy night"]; current-index <=> root.theme; selected(i) => { root.theme = i; reader-keys.focus(); } }
+         }
         }
         SectionHeading {text: root.arabic ? "القراءة" : "Reading"; horizontal-alignment: root.arabic ? right : left;}
         SettingsGroup {
-        ToggleRow { text: root.arabic ? "إطالة الحروف السياقية" : "Contextual letter elongation"; hint: root.arabic ? "استخدام الرسم الأصلي ذي الامتداد السياقي" : "Use the original contextual rendering mode"; rtl: root.arabic; checked <=> root.contextual; toggled => { root.preferences-changed(); } }
-        ToggleRow { text: root.arabic ? "عرض صفحة واحدة" : "One page at a time"; rtl: root.arabic; checked <=> root.single-page; toggled => { root.preferences-changed(); } }
-        ToggleRow { text: root.arabic ? "إظهار ساعة الصفحة" : "Show page clock"; rtl: root.arabic; checked <=> root.show-clock; toggled => { root.preferences-changed(); } }
-        if root.show-clock : ToggleRow { text: root.arabic ? "الساعة بنظام 24 ساعة" : "24-hour clock"; rtl: root.arabic; checked <=> root.clock-24; toggled => { root.preferences-changed(); } }
-        ToggleRow { text: root.arabic ? "حركة القوائم والانتقالات" : "Panel and transition motion"; rtl: root.arabic; checked <=> root.motion-enabled; toggled => { root.preferences-changed(); } }
-        ToggleRow { text: root.arabic ? "استخدام الرسم البرمجي" : "Use software rendering"; hint: root.arabic ? "يسري بعد إعادة تشغيل التطبيق. جرّبه إذا ظهرت مشكلات في الرسم أو ارتفع استخدام المعالج" : "Takes effect after restarting. Try this if you see drawing problems or high CPU use"; rtl: root.arabic; checked <=> root.software-rendering; toggled => { root.preferences-changed(); } }
-        ToggleRow { text: root.arabic ? "فتح التفسير بالنقر الأيسر" : "Open tafsir with a left click"; hint: root.arabic ? "يمكن فتح التفسير دائمًا من قائمة الزر الأيمن للآية" : "Tafsir is always available from an ayah’s right-click menu"; rtl: root.arabic; checked <=> root.open-tafsir-on-click; toggled => { root.preferences-changed(); } }
+         ToggleRow { text: root.arabic ? "إطالة الحروف السياقية" : "Contextual letter elongation"; hint: root.arabic ? "استخدام الرسم الأصلي ذي الامتداد السياقي" : "Use the original contextual rendering mode"; rtl: root.arabic; checked <=> root.contextual; toggled => { root.preferences-changed(); } }
+         ToggleRow { text: root.arabic ? "عرض صفحة واحدة" : "One page at a time"; rtl: root.arabic; checked <=> root.single-page; toggled => { root.preferences-changed(); } }
+         ToggleRow { text: root.arabic ? "فتح التفسير بالنقر الأيسر" : "Open tafsir with a left click"; hint: root.arabic ? "يمكن فتح التفسير دائمًا من قائمة الزر الأيمن للآية" : "Tafsir is always available from an ayah’s right-click menu"; rtl: root.arabic; checked <=> root.open-tafsir-on-click; toggled => { root.preferences-changed(); } }
+         ToggleRow { text: root.arabic ? "إظهار ساعة الصفحة" : "Show page clock"; rtl: root.arabic; checked <=> root.show-clock; toggled => { root.preferences-changed(); } }
+         if root.show-clock : ToggleRow { text: root.arabic ? "الساعة بنظام 24 ساعة" : "24-hour clock"; rtl: root.arabic; checked <=> root.clock-24; toggled => { root.preferences-changed(); } }
+         ToggleRow { text: root.arabic ? "حركة القوائم والانتقالات" : "Panel and transition motion"; rtl: root.arabic; checked <=> root.motion-enabled; toggled => { root.preferences-changed(); } }
         }
-        SettingsLink {text: root.arabic ? "اختصارات لوحة المفاتيح" : "Keyboard shortcuts"; detail: root.shortcuts-open ? "−" : "+"; rtl: root.arabic; clicked => {root.shortcuts-open = !root.shortcuts-open;} }
-        if root.shortcuts-open : SettingsGroup {
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "اختصار البحث" : "Search shortcut"; model: root.arabic ? ["البحث · ⁦Ctrl+F⁩", "البحث · ⁦Ctrl+K⁩", "البحث · ⁦Ctrl+/⁩"] : ["Search · ⁦Ctrl+F⁩", "Search · ⁦Ctrl+K⁩", "Search · ⁦Ctrl+/⁩"]; current-index <=> root.search-shortcut; selected(i) => { root.preferences-changed(); } }
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "اختصار الاستماع" : "Listening shortcut"; model: root.arabic ? ["الاستماع · ⁦Ctrl+L⁩", "الاستماع · ⁦Ctrl+P⁩"] : ["Listen · ⁦Ctrl+L⁩", "Listen · ⁦Ctrl+P⁩"]; current-index <=> root.listen-shortcut; selected(i) => { root.preferences-changed(); } }
-        ChoiceField { rtl: root.arabic; label: root.arabic ? "اختصار الخيارات" : "Options shortcut"; model: root.arabic ? ["الخيارات · ⁦Ctrl+,⁩", "الخيارات · ⁦Ctrl+O⁩"] : ["Options · ⁦Ctrl+,⁩", "Options · ⁦Ctrl+O⁩"]; current-index <=> root.options-shortcut; selected(i) => { root.preferences-changed(); } }
-        Text { text: root.arabic ? "F11: ملء الشاشة · Ctrl+Space: إيقاف التلاوة مؤقتًا أو متابعتها" : "F11: full screen · Ctrl+Space: pause or resume recitation"; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        SectionHeading {text: root.arabic ? "مكتبتك" : "Your library"; horizontal-alignment: root.arabic ? right : left;}
+        SettingsGroup {
+         SettingsLink {text: root.arabic ? "العلامات المحفوظة" : "Saved bookmarks"; detail: root.bookmarks.length; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "bookmarks";} }
+         SettingsLink {text: root.arabic ? "إدارة التنزيلات" : "Download manager"; detail: root.downloads.length; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "downloads";} }
         }
-        Rectangle {height: 1px; background: UiColors.edge.with-alpha(0.5);}
-        SettingsLink {text: root.fullscreen ? (root.arabic ? "إنهاء ملء الشاشة" : "Exit full screen") : (root.arabic ? "ملء الشاشة" : "Full screen"); detail: "F11"; rtl: root.arabic; clicked => {root.dismiss-overlays();root.fullscreen-requested();} }
-        SettingsLink {text: root.arabic ? "العلامات المحفوظة" : "Saved bookmarks"; rtl: root.arabic; clicked => {root.panel = "bookmarks";} }
-        SettingsLink {text: root.arabic ? "عرض المقدمة" : "Show introduction"; rtl: root.arabic; clicked => {root.onboarding-complete = false;root.panel = "";root.preferences-changed();} }
-        SettingsLink {text: root.arabic ? "حول التطبيق" : "About the app"; rtl: root.arabic; clicked => {root.about-requested();} }
-        if root.session-only : Text {text: root.arabic ? "تُطبّق التغييرات لهذه الجلسة فقط؛ تعذّر حفظ الإعدادات." : "Changes apply to this session only; settings could not be saved."; color: UiColors.muted; font-size: 11px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left;}
+        SectionHeading {text: root.arabic ? "المزيد" : "More"; horizontal-alignment: root.arabic ? right : left;}
+        SettingsGroup {
+         SettingsLink {text: root.arabic ? "اختصارات لوحة المفاتيح" : "Keyboard shortcuts"; detail: root.arabic ? "‹" : "›"; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "shortcuts";} }
+         SettingsLink {text: root.fullscreen ? (root.arabic ? "إنهاء ملء الشاشة" : "Exit full screen") : (root.arabic ? "ملء الشاشة" : "Full screen"); detail: root.shortcut-rows.length > 6 ? root.shortcut-rows[6].detail : ""; rtl: root.arabic; clicked => {root.dismiss-overlays();root.fullscreen-requested();} }
+         SettingsLink {text: root.arabic ? "جولة في التطبيق" : "Take the tour"; rtl: root.arabic; clicked => {root.onboarding-step = 0; root.onboarding-complete = false; root.panel = "";} }
+        }
+        Rectangle {preferred-height: 0px; vertical-stretch: 1; background: transparent;}
+        Text {text: (root.arabic ? "قارئ المصحف " : "Quran Mushaf Reader ") + root.app-version; color: UiColors.muted; font-size: 11px; horizontal-alignment: center;}
+       }
+      }
+      if root.panel-kind == "shortcuts" : PanelScroll {
+       VerticalLayout {spacing: 10px;
+        Text { text: root.arabic ? "اضغط على اختصار ثم اضغط المفاتيح الجديدة، مثل Ctrl مع حرف. يزيله Backspace، ويلغي Escape التغيير." : "Click a shortcut, then press the new keys, such as Ctrl and a letter. Backspace removes it; Escape cancels."; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        SettingsGroup {
+         for row[i] in root.shortcut-rows : SettingRow { label: row.title; rtl: root.arabic;
+          Action { layout-order: root.arabic ? 0 : 1; width: 118px; height: 32px; selected: root.shortcut-capture == i; text: root.shortcut-capture == i ? (root.arabic ? "اضغط المفاتيح…" : "Press keys…") : row.detail; hint: root.arabic ? "تغيير الاختصار" : "Change shortcut"; clicked => { root.shortcut-status = ""; root.shortcut-capture = root.shortcut-capture == i ? -1 : i; reader-keys.focus(); } }
+         }
+        }
+        if root.shortcut-status != "" : Text { text: root.shortcut-status; color: UiColors.accent; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        Text { text: root.arabic ? "أسهم لوحة المفاتيح تقلّب الصفحات، وEscape يغلق القوائم." : "The arrow keys turn pages, and Escape closes panels."; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        HorizontalLayout { Action { layout-order: root.arabic ? 1 : 0; width: 170px; height: 32px; text: root.arabic ? "استعادة الاختصارات الأصلية" : "Restore default shortcuts"; clicked => { root.shortcuts-reset(); } } Rectangle { layout-order: root.arabic ? 0 : 1; horizontal-stretch: 1; } }
+        Rectangle {preferred-height: 0px; vertical-stretch: 1; background: transparent;}
+       }
+      }
+      if root.panel-kind == "downloads" : PanelScroll {
+       VerticalLayout {spacing: 10px;
+        HorizontalLayout { height: 22px;
+         SectionHeading { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.arabic ? "على هذا الجهاز" : "On this PC"; horizontal-alignment: root.arabic ? right : left; }
+         Text { layout-order: root.arabic ? 0 : 1; text: root.downloads-storage; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
+        }
+        if root.downloads.length == 0 : Rectangle { height: 70px; border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.5);
+         VerticalLayout { padding: 12px; spacing: 4px; alignment: center;
+          Text { text: root.arabic ? "لم تنزّل أي سورة بعد" : "You haven't downloaded any surahs yet"; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-alignment: center; }
+          Text { text: root.arabic ? "اختر قارئًا وسورة بالأسفل لتستمع دون اتصال." : "Choose a reciter and a surah below to listen offline."; color: UiColors.muted; font-size: 12px; horizontal-alignment: center; wrap: word-wrap; }
+         }
+        }
+        for entry[index] in root.downloads : Rectangle { height: 52px; border-radius: 8px; background: UiColors.field.with-alpha(0.35); border-width: 1px; border-color: UiColors.edge.with-alpha(0.5);
+         HorizontalLayout { padding-left: 12px; padding-right: 8px; padding-top: 11px; padding-bottom: 11px; spacing: 8px;
+          VerticalLayout { layout-order: 1; horizontal-stretch: 1; alignment: center; spacing: 2px;
+           Text { text: entry.title; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
+           Text { text: entry.detail; color: UiColors.muted; font-size: 11px; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
+          }
+          Action { layout-order: root.arabic ? 0 : 2; width: 30px; height: 30px; symbol: 12; quiet: true; text: root.arabic ? "حذف" : "Delete"; hint: (root.arabic ? "حذف " : "Delete ") + entry.title; clicked => { root.download-delete(index); } }
+         }
+        }
+        SectionHeading { text: root.arabic ? "تنزيل سورة" : "Download a surah"; horizontal-alignment: root.arabic ? right : left; }
+        SettingsGroup {
+         Text { text: root.arabic ? "القارئ" : "Reciter"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+         ChoiceField { rtl: root.arabic; label: root.arabic ? "اختيار القارئ" : "Choose reciter"; model: root.reciters; current-index <=> root.reciter-index; enabled: root.reciters.length > 0 && !root.download-busy; selected(i) => { root.reciter-changed(i); } }
+         Text { text: root.arabic ? "السورة" : "Surah"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+         ChoiceField { rtl: root.arabic; label: root.arabic ? "السورة المراد تنزيلها" : "Surah to download"; model: root.surah-names; current-index <=> root.download-surah; enabled: !root.download-busy && root.surah-names.length > 0; }
+         if !root.download-busy : Action { height: 36px; primary: true; text: root.arabic ? "تنزيل السورة" : "Download surah"; enabled: root.reciters.length > 0 && root.surah-names.length > 0; clicked => { root.download-start(root.download-surah); } }
+         if root.download-busy : HorizontalLayout { height: 36px; spacing: 10px;
+          Rectangle { layout-order: root.arabic ? 2 : 0; horizontal-stretch: 1;
+           Rectangle { y: (parent.height - 6px) / 2; height: 6px; border-radius: 3px; background: UiColors.edge;
+            Rectangle { x: root.arabic ? parent.width - self.width : 0px; width: parent.width * root.download-progress; border-radius: 3px; background: UiColors.accent; }
+           }
+          }
+          Text { layout-order: 1; width: 40px; text: round(root.download-progress * 100) + "%"; color: UiColors.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+          Action { layout-order: root.arabic ? 0 : 2; width: 76px; text: root.arabic ? "إلغاء" : "Cancel"; clicked => { root.download-cancel(); } }
+         }
+         if root.download-status != "" : Text { text: root.download-status; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        }
         Rectangle {preferred-height: 0px; vertical-stretch: 1; background: transparent;}
        }
       }
@@ -773,9 +1031,9 @@ export component ReaderWindow inherits Window {
         if root.audio-active : QuietLink { width: 154px; text: root.follow-recitation ? (root.arabic ? "متابعة التلاوة: مفعّلة" : "Following recitation") : (root.arabic ? "متابعة التلاوة" : "Follow recitation"); hint: root.arabic ? "إظهار تفسير الآية التي تُتلى تلقائيًا" : "Automatically show the study text for the verse being recited"; clicked => { root.follow-recitation = !root.follow-recitation; root.preferences-changed(); } }
        }
        if root.size-tools : HorizontalLayout { height: 32px; spacing: 8px;
-        Action { width: 36px; text: "A−"; hint: root.arabic ? "تصغير نص التفسير" : "Smaller study text"; clicked => { root.study-size = max(14, root.study-size - 1); root.preferences-changed(); } }
-        Text { text: round(root.study-size); color: UiColors.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; }
-        Action { width: 36px; text: "A+"; hint: root.arabic ? "تكبير نص التفسير" : "Larger study text"; clicked => { root.study-size = min(26, root.study-size + 1); root.preferences-changed(); } }
+        Action { layout-order: root.arabic ? 2 : 0; width: 44px; text: "A−"; hint: root.arabic ? "تصغير نص التفسير" : "Smaller study text"; enabled: root.study-size > 14; clicked => { root.study-size = max(14, root.study-size - 1); root.preferences-changed(); } }
+        Text { layout-order: 1; text: round(root.study-size); color: UiColors.muted; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1; }
+        Action { layout-order: root.arabic ? 0 : 2; width: 44px; text: "A+"; hint: root.arabic ? "تكبير نص التفسير" : "Larger study text"; enabled: root.study-size < 26; clicked => { root.study-size = min(26, root.study-size + 1); root.preferences-changed(); } }
        }
        Rectangle { height: 1px; background: UiColors.edge; }
        body := ReadingBody { body: root.study-body; text-size: root.study-size; rtl: root.arabic; vertical-stretch: 1; }
@@ -784,6 +1042,7 @@ export component ReaderWindow inherits Window {
        if root.audio-active : Rectangle { height: 1px; background: UiColors.edge; }
        if root.audio-active : HorizontalLayout { height: 24px;
         Text { text: root.audio-title; color: UiColors.muted; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
+        Action { width: 34px; quiet: true; enabled: !root.download-busy && !root.current-saved; symbol: root.current-saved ? 15 : 14; text: root.arabic ? "تنزيل السورة" : "Download surah"; hint: root.current-saved ? (root.arabic ? "هذه السورة محفوظة للاستماع دون اتصال" : "This surah is saved for offline listening") : (root.arabic ? "نزّل هذه السورة لتستمع إليها دون اتصال" : "Download this surah to listen offline"); clicked => { root.download-current(); } }
         Action { width: 34px; quiet: true; symbol: 5; text: root.arabic ? "إعدادات الاستماع" : "Listening settings"; hint: root.arabic ? "إعدادات الاستماع" : "Listening settings"; clicked => { root.panel = "listen"; } }
        }
        if root.audio-active : Transport { height: 124px; rtl: root.arabic; paused: root.audio-paused; terminal: root.audio-terminal; can-seek: root.audio-can-seek; loading: root.audio-loading; clock: root.audio-clock; status: root.audio-status; progress: root.audio-progress; toggle => { root.audio-toggle(); } end => { root.audio-end(); } skip(s) => { root.audio-skip(s); } seek(v) => { root.audio-seek(v); } show-ayah => { root.show-recited-ayah(); } }
@@ -809,7 +1068,9 @@ export component ReaderWindow inherits Window {
         VerticalLayout { spacing: 9px;
          Text { height: 18px; text: root.arabic ? "القارئ" : "Reciter"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
          ChoiceField { rtl: root.arabic; label: root.arabic ? "اختيار القارئ" : "Choose reciter"; model: root.reciters; current-index <=> root.reciter-index; enabled: root.reciters.length > 0; selected(i) => { root.reciter-changed(i); reader-keys.focus(); } }
-         ToggleRow { text: root.arabic ? "هذه الآية فقط" : "This ayah only"; hint: root.arabic ? "عند إيقاف الخيار تستمر التلاوة إلى نهاية السورة" : "When off, continue to the end of the surah"; rtl: root.arabic; checked <=> root.listen-only-ayah; toggled => { root.preferences-changed(); } }
+         Text { height: 18px; text: root.arabic ? "مدى التلاوة" : "Listening range"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+         ChoiceField { rtl: root.arabic; label: root.arabic ? "مدى التلاوة" : "Listening range"; model: root.arabic ? ["من الآية إلى نهاية السورة", "هذه الآية فقط", "حتى نهاية الصفحة", "السورة كاملة", "حتى نهاية القرآن"] : ["From the ayah to the end of the surah", "This ayah only", "To the end of the page", "The whole surah", "To the end of the Quran"]; current-index <=> root.listen-scope; }
+         if root.audio-active && !root.current-saved : Action { height: 34px; text: root.download-busy ? (root.arabic ? "جارٍ تنزيل السورة… " : "Downloading the surah… ") + round(root.download-progress * 100) + "%" : (root.arabic ? "نزّل السورة التي تستمع إليها" : "Download the surah you're listening to"); enabled: !root.download-busy; clicked => { root.download-current(); } }
          Action { height: 36px; text: root.arabic ? "بدء التلاوة" : "Start recitation"; primary: true; enabled: root.reciters.length > 0; clicked => { root.play-selected(); } }
          Rectangle { height: 1px; background: UiColors.edge; }
          Text { height: 18px; text: root.arabic ? "سرعة التلاوة" : "Playback speed"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
@@ -818,6 +1079,8 @@ export component ReaderWindow inherits Window {
          Text { height: 18px; text: (root.arabic ? "مستوى الصوت · " : "Volume · ") + round(root.volume) + "%"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
          SeekTrack { value: root.volume / 100; rtl: root.arabic; label: root.arabic ? "مستوى الصوت" : "Volume"; seek(v) => { root.volume = v * 100; root.audio-volume(root.volume); } }
          HorizontalLayout { height: 16px; Text { text: root.arabic ? "100%" : "0%"; color: UiColors.muted; font-size: 10px; horizontal-stretch: 1; } Text { text: root.arabic ? "0%" : "100%"; color: UiColors.muted; font-size: 10px; horizontal-stretch: 1; horizontal-alignment: right; } }
+         Rectangle { height: 1px; background: UiColors.edge; }
+         SettingsLink { text: root.arabic ? "إدارة التنزيلات" : "Download manager"; detail: root.downloads.length; rtl: root.arabic; clicked => { root.panel-return = "listen"; root.panel = "downloads"; } }
          Rectangle { preferred-height: 0px; vertical-stretch: 1; background: transparent; }
         }
        }
@@ -826,22 +1089,25 @@ export component ReaderWindow inherits Window {
       }
      }
     }    // Open panels dock playback into the toolbar, never over study text.
+    Timer { interval: 6s; running: root.audio-finished && root.panel != "listen" && root.panel != "study"; triggered => { root.audio-end(); } }
     if root.audio-active && root.player-expanded && !root.player-docked && root.panel == "" : Rectangle {
-     width: min(264px, max(188px, (canvas.width - root.image-w * 1px) / 2 - 16px)); height: root.audio-status == "" ? 186px : 202px;
+     width: min(264px, max(188px, (canvas.width - root.image-w * 1px) / 2 - 16px)); height: (root.audio-status == "" ? 186px : 202px) + (root.download-busy ? 18px : 0px);
      x: root.arabic ? canvas.width - self.width - 10px : 10px; y: canvas.height - self.height - 10px;
      border-radius: 12px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
      VerticalLayout { padding: 11px; spacing: 7px;
       HorizontalLayout { height: 26px; spacing: 6px;
        Text { text: root.audio-title; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-stretch: 1; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; Tooltip { Text { text: root.audio-title; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } } }
+       Action { width: 34px; enabled: !root.download-busy && !root.current-saved; symbol: root.current-saved ? 15 : 14; quiet: true; text: root.arabic ? "تنزيل السورة" : "Download surah"; hint: root.current-saved ? (root.arabic ? "هذه السورة محفوظة للاستماع دون اتصال" : "This surah is saved for offline listening") : root.download-busy ? (root.arabic ? "جارٍ التنزيل… " : "Downloading… ") + round(root.download-progress * 100) + "%" : (root.arabic ? "نزّل هذه السورة لتستمع إليها دون اتصال" : "Download this surah to listen offline"); clicked => { root.download-current(); } }
        Action { width: 34px; symbol: 5; text: root.arabic ? "إعدادات الاستماع" : "Listening settings"; hint: root.arabic ? "إعدادات الاستماع" : "Listening settings"; clicked => { root.panel = "listen"; } }
        Action { width: 28px; symbol: 2; text: root.arabic ? "تصغير المشغّل" : "Minimize player"; hint: root.arabic ? "تصغير المشغّل إلى شريط العنوان" : "Minimize player to the title bar"; clicked => { root.player-expanded = false; } }
       }
       Transport { rtl: root.arabic; paused: root.audio-paused; terminal: root.audio-terminal; can-seek: root.audio-can-seek; loading: root.audio-loading; clock: root.audio-clock; status: root.audio-status; progress: root.audio-progress; toggle => { root.audio-toggle(); } end => { root.audio-end(); } skip(s) => { root.audio-skip(s); } seek(v) => { root.audio-seek(v); } show-ayah => { root.show-recited-ayah(); } }
+      if root.download-busy : Text { text: (root.arabic ? "جارٍ تنزيل السورة… " : "Downloading the surah… ") + round(root.download-progress * 100) + "%"; color: UiColors.muted; font-size: 11px; horizontal-alignment: center; }
      }
     }
     if root.fullscreen && root.panel == "" : Action { x: root.arabic ? canvas.width - self.width - 8px : 8px; y: 5px; width: 128px; height: 30px; quiet: true; text: root.arabic ? "إنهاء ملء الشاشة" : "Exit full screen"; hint: root.arabic ? "إنهاء ملء الشاشة (Escape)" : "Exit full screen (Escape)"; clicked => { root.fullscreen-requested(); } }
     if root.fullscreen && root.panel == "" : VerticalLayout { x: root.arabic ? canvas.width - self.width - 4px : 4px; y: 42px; width: 44px; height: root.audio-active && root.player-docked ? 200px : 120px; spacing: 4px;
-     Action { height: 36px; symbol: 8; quiet: true; selected: root.panel == "search"; text: root.arabic ? "بحث" : "Search"; hint: root.arabic ? "بحث" : "Search"; clicked => { if root.panel == "search" { root.panel = ""; } else { root.panel = "search"; root.search(root.search-query); } } }
+     Action { height: 36px; symbol: 8; quiet: true; selected: root.panel == "search"; text: root.arabic ? "بحث" : "Search"; hint: root.arabic ? "بحث" : "Search"; clicked => { if root.panel == "search" { root.panel = ""; } else { root.open-search(); } } }
      Action { height: 36px; symbol: 9; quiet: true; selected: root.panel == "listen"; text: root.arabic ? "استماع" : "Listen"; hint: root.arabic ? "الاستماع والتلاوة" : "Listening and recitation"; clicked => { root.panel = root.panel == "listen" ? "" : "listen"; } }
      Action { height: 36px; symbol: 10; quiet: true; selected: root.panel == "settings"; text: root.arabic ? "الخيارات" : "Options"; hint: root.arabic ? "الخيارات" : "Options"; clicked => { root.panel = root.panel == "settings" ? "" : "settings"; } }
      if root.audio-active && root.player-docked : Action { height: 36px; symbol: root.audio-paused || root.audio-terminal ? 7 : 6; selected: true; enabled: !root.audio-loading; text: root.audio-terminal ? (root.arabic ? "تشغيل مجددًا" : "Play again") : root.audio-paused ? (root.arabic ? "متابعة التلاوة" : "Resume recitation") : (root.arabic ? "إيقاف مؤقت" : "Pause recitation"); clicked => { root.audio-toggle(); } }
@@ -849,15 +1115,29 @@ export component ReaderWindow inherits Window {
     }
     if root.context-open : TouchArea { clicked => { root.context-open = false; reader-keys.focus(); } }
     if root.context-open : Rectangle {
-     width: 270px; height: 178px;
+     width: 300px; height: menu-column.preferred-height;
+     init => { root.menu-x = self.x / 1px; root.menu-y = self.y / 1px; root.menu-h = self.height / 1px; }
+     changed height => { root.menu-h = self.height / 1px; } changed x => { root.menu-x = self.x / 1px; } changed y => { root.menu-y = self.y / 1px; }
      x: ((root.context-x + root.canvas-x) * 1px).clamp(10px, max(10px, canvas.width - self.width - 10px)); y: (root.context-y * 1px).clamp(10px, max(10px, canvas.height - self.height - 10px));
-     border-radius: 8px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
-     VerticalLayout { padding: 8px; spacing: 3px;
-      Text { height: 20px; text: root.context-title; color: UiColors.muted; font-size: 11px; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; }
-      Rectangle { height: 1px; background: UiColors.edge.with-alpha(0.6); }
-      MenuAction { icon: 0; text: root.arabic ? "قراءة التفسير" : "Read Tafsir"; rtl: root.arabic; clicked => { root.context-open = false; root.study-selected(); } }
-      MenuAction { icon: 1; text: root.arabic ? "الاستماع من هنا" : "Listen from here"; rtl: root.arabic; clicked => { root.context-open = false; root.listen-selected(); } }
-      MenuAction { icon: 2; text: root.bookmark-present ? (root.arabic ? "إزالة العلامة" : "Remove bookmark") : (root.arabic ? "حفظ علامة" : "Save bookmark"); rtl: root.arabic; clicked => { root.context-open = false; root.bookmark-selected(); } }
+     border-radius: 12px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
+     drop-shadow-blur: 16px; drop-shadow-offset-y: 4px; drop-shadow-color: #00000030;
+     menu-column := VerticalLayout { padding: 8px; spacing: 2px;
+      HorizontalLayout { height: 32px; padding-left: 8px; padding-right: 2px; spacing: 6px;
+       Text { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.context-title; color: UiColors.muted; font-size: 12px; font-weight: 600; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; }
+       Action { layout-order: root.arabic ? 0 : 1; width: 28px; min-height: 28px; max-height: 28px; quiet: true; symbol: 12; text: root.arabic ? "إغلاق" : "Close"; clicked => { root.context-open = false; reader-keys.focus(); } }
+      }
+      MenuItem { icon: 0; rtl: root.arabic; text: root.arabic ? "التفسير" : "Tafsir"; detail: root.arabic ? "اقرأ تفسير الآية" : "Read the explanation"; clicked => { root.context-open = false; root.study-selected(); } }
+      HorizontalLayout { spacing: 2px;
+       MenuItem { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; icon: 1; rtl: root.arabic; text: root.arabic ? "الاستماع من هنا" : "Listen from here"; detail: root.arabic ? "حتى نهاية السورة" : "Continue to the end of this surah"; clicked => { root.context-open = false; root.listen-selected(0); } }
+       Action { layout-order: root.arabic ? 0 : 1; width: 34px; min-height: 52px; quiet: true; selected: root.listen-more; subtle: true; symbol: root.listen-more ? 2 : 13; text: root.arabic ? "خيارات استماع أخرى" : "More listening options"; clicked => { root.listen-more = !root.listen-more; } }
+      }
+      if root.listen-more : Rectangle { height: 4 * 36px + 6px;
+       Rectangle { x: root.arabic ? parent.width - 23px : 21px; y: 3px; width: 2px; height: parent.height - 6px; border-radius: 1px; background: UiColors.edge; }
+       VerticalLayout { x: root.arabic ? 0px : 32px; y: 3px; width: parent.width - 32px; height: parent.height - 6px; spacing: 0px;
+        for option[i] in (root.arabic ? ["هذه الآية فقط", "حتى نهاية الصفحة", "السورة كاملة", "حتى نهاية القرآن"] : ["This ayah only", "To the end of the page", "The whole surah", "To the end of the Quran"]) : MenuItem { rtl: root.arabic; text: option; clicked => { root.context-open = false; root.listen-selected(i + 1); } }
+       }
+      }
+      MenuItem { icon: 2; rtl: root.arabic; text: root.bookmark-present ? (root.arabic ? "إزالة العلامة" : "Remove bookmark") : (root.arabic ? "حفظ علامة" : "Save bookmark"); detail: root.bookmark-present ? (root.arabic ? "إزالتها من العلامات المحفوظة" : "Remove it from Saved bookmarks") : (root.arabic ? "تجدها لاحقًا في العلامات المحفوظة" : "Find it later in Saved bookmarks"); clicked => { root.context-open = false; root.bookmark-selected(); } }
      }
     }
     if root.notice != "" || root.notification != "" : Rectangle {
@@ -869,41 +1149,157 @@ export component ReaderWindow inherits Window {
 
   }
  }
- if !root.onboarding-complete : FocusScope {
-  x: 0px; y: root.canvas-y * 1px; width: root.width; height: root.height - self.y;
-  init => { self.focus(); }
-  forward-focus: welcome-arabic;
-  Rectangle {
-  background: UiColors.canvas.with-alpha(0.94);
-  TouchArea { }
-  Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: min(500px, parent.width - 40px); height: 270px; border-radius: 14px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
-   VerticalLayout { padding: 24px; spacing: 15px;
-    Text { height: 35px; text: "قارئ المصحف  ·  Quran Mushaf Reader"; color: UiColors.ink; font-size: 19px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
-    Text { height: 50px; text: "اختر لغة التطبيق  ·  Choose your language"; color: UiColors.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
-    HorizontalLayout { height: 42px; spacing: 10px;
-     welcome-arabic := Action { text: "العربية"; horizontal-stretch: 1; clicked => { root.arabic = true; root.onboarding-complete = true; root.preferences-changed(); reader-keys.focus(); } }
-     Action { text: "English"; horizontal-stretch: 1; clicked => { root.arabic = false; root.onboarding-complete = true; root.preferences-changed(); reader-keys.focus(); } }
+ // The tour runs on the live app. It never dims or blocks anything: a ring marks
+ // the part being shown and a small card sits beside it. The title bar stays
+ // usable throughout, and the card steps aside while a panel is open.
+ if !root.onboarding-complete : tour := Rectangle {
+  x: 0px; y: 0px; width: root.width; height: root.height;
+  init => { root.panel = ""; root.context-open = false; tour-keys.focus(); }
+  private property <int> steps: 6;
+  private property <int> step: root.onboarding-step;
+  private property <float> top: root.canvas-y + 1;
+  private property <int> start-page: root.page;
+  private property <bool> turned: self.step == 1 && root.page != self.start-page && !root.drag-active && !root.turn-running;
+  private property <[float]> head-x: root.arabic ? [root.nav-x + 170, root.nav-x + 88, root.nav-x] : [root.nav-x, root.nav-x + 82, root.nav-x + 164];
+  private property <bool> header-step: self.step >= 3 && !root.fullscreen;
+  // The marked area in window coordinates; zero width for none.
+  private property <float> tx: self.step == 1 ? root.raster-canvas-x + root.image-x + root.book-x - 6
+     : self.step == 2 ? root.menu-x - 5
+     : self.header-step ? self.head-x[self.step - 3] - 3 : 0;
+  private property <float> ty: self.step == 1 ? self.top + root.image-y + root.book-y + root.book-h - 150
+     : self.step == 2 ? self.top + root.menu-y - 5
+     : self.header-step ? 1 : 0;
+  private property <float> tw: self.step == 1 ? 156 : self.step == 2 ? 310 : self.header-step ? (self.step == 5 ? 92 : 86) : 0;
+  private property <float> th: self.step == 1 ? 156 : self.step == 2 ? (root.context-open ? root.menu-h + 10 : 0) : self.header-step ? 27 : 0;
+  private property <bool> marked: self.tw > 0 && self.th > 0;
+  function finish() {
+   root.context-open = false;
+   if root.drag-active { root.end-page-drag(false); }
+   root.onboarding-complete = true; root.onboarding-step = 0; root.preferences-changed(); reader-keys.focus();
+  }
+  function show(n: int) {
+   if root.drag-active { root.end-page-drag(false); }
+   root.context-open = false; root.panel = "";
+   root.onboarding-step = n;
+   peek.ticks = 0; peek.running = n == 1;
+   menu-try.tries = 0; menu-try.asked = 0; menu-try.running = n == 2;
+   if n == 1 { self.start-page = root.page; }
+   tour-keys.focus();
+  }
+  function next() { if self.step >= self.steps - 1 { self.finish(); } else { self.show(self.step + 1); } }
+  function back() { if self.step > 0 { self.show(self.step - 1); } }
+  tour-keys := FocusScope {
+   width: 0px; height: 0px;
+   key-pressed(event) => {
+    if event.text == Key.Escape { tour.finish(); return accept; }
+    if event.text == Key.Return { tour.next(); return accept; }
+    return reject;
+   }
+  }
+  // Step 1 shows a page turn once: the corner lifts a little and settles back.
+  peek := Timer {
+   interval: 30ms; running: false;
+   in-out property <int> ticks: 0;
+   triggered => {
+    if tour.step != 1 || !root.motion-enabled { if root.drag-active && self.ticks > 0 { root.end-page-drag(false); } self.running = false; return; }
+    self.ticks += 1;
+    if self.ticks == 16 && !root.drag-active && !root.turn-running { root.turn-top = false; root.begin-page-drag(1); }
+    if self.ticks > 16 && self.ticks <= 42 && root.drag-active { root.drag-progress = 0.2 * Math.sin((self.ticks - 16) / 26 * 90deg); }
+    if self.ticks == 60 { if root.drag-active { root.end-page-drag(false); } self.running = false; }
+   }
+  }
+  // Step 2 opens the real ayah menu, waiting for a page turn or redraw to finish.
+  menu-try := Timer {
+   interval: 250ms; running: false;
+   in-out property <int> tries: 0;
+   in-out property <int> asked: 0;
+   triggered => {
+    // Stop for good once it has opened, so it never opens again by itself.
+    if tour.step != 2 || root.context-open || self.tries >= 16 || self.asked >= 3 { self.running = false; return; }
+    self.tries += 1;
+    if root.drag-active { root.end-page-drag(false); }
+    if self.tries >= 2 && !root.render-busy && !root.turn-running && !root.drag-active && !root.drag-canceling && !root.book-sliding {
+     self.asked += 1;
+     root.context-ayah(root.image-x + root.book-x + root.book-w * 0.25, root.image-y + root.book-y + root.book-h * 0.42);
     }
-    Text { height: 35px; text: "يمكن تغيير اللغة لاحقًا من الخيارات  ·  Change it later in Options"; color: UiColors.muted; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+   }
+  }
+  if tour.marked : Rectangle { x: tour.tx * 1px; y: tour.ty * 1px; width: tour.tw * 1px; height: tour.th * 1px; border-radius: tour.header-step ? 8px : 14px; border-width: 2px; border-color: UiColors.accent; }
+  if tour.marked : Rectangle { x: (tour.tx - 3) * 1px; y: (tour.ty - 3) * 1px; width: (tour.tw + 6) * 1px; height: (tour.th + 6) * 1px; border-radius: tour.header-step ? 10px : 16px; border-width: 3px; border-color: UiColors.accent.with-alpha(0.22); }
+  // The welcome card, centred, over the open book.
+  if tour.step == 0 : Rectangle {
+   private property <length> w: min(420px, root.width - 32px);
+   x: (root.width - self.w) / 2; y: (root.height - self.height) / 2 + 14px; width: self.w; height: welcome.preferred-height;
+   border-radius: 18px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
+   drop-shadow-blur: 30px; drop-shadow-offset-y: 10px; drop-shadow-color: #00000045;
+   TouchArea { }
+   welcome := VerticalLayout { padding: 26px; padding-top: 22px; spacing: 12px;
+    HorizontalLayout { alignment: center; Image { width: 72px; height: 72px; source: @image-url("../assets/app.png"); } }
+    Text { text: root.arabic ? "قارئ المصحف" : "Quran Mushaf Reader"; color: UiColors.ink; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: root.arabic ? "مصحف تقلّب صفحاته كالورق، والتفسير والتلاوة على بُعد نقرة." : "A Mushaf that turns like paper, with tafsir and recitation one click away."; color: UiColors.muted; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+    // English on the left, Arabic on the right, whatever the language; the
+    // selection slides between them.
+    HorizontalLayout { alignment: center; padding-top: 4px;
+     Rectangle { width: 220px; height: 36px; border-radius: 9px; background: UiColors.field; border-width: 1px; border-color: UiColors.edge;
+      Rectangle { x: root.arabic ? parent.width / 2 : 3px; y: 3px; width: parent.width / 2 - 3px; height: parent.height - 6px; border-radius: 7px; background: UiColors.surface; border-width: 1px; border-color: UiColors.edge;
+       animate x { duration: 200ms; easing: ease-in-out; enabled: root.motion-enabled; }
+      }
+      for language[l] in ["English", "العربية"] : Rectangle { x: l * parent.width / 2; width: parent.width / 2; height: parent.height;
+       Text { width: parent.width; height: parent.height; text: language; color: (l == 1) == root.arabic ? UiColors.ink : UiColors.muted; font-size: 13px; font-weight: (l == 1) == root.arabic ? 700 : 500; horizontal-alignment: center; vertical-alignment: center; }
+       TouchArea { clicked => { root.arabic = l == 1; tour-keys.focus(); } }
+      }
+     }
+    }
+    VerticalLayout { spacing: 6px; padding-top: 6px;
+     Action { height: 40px; primary: true; text: root.arabic ? "خذني في جولة سريعة" : "Show me around"; clicked => { tour.next(); } }
+     Action { height: 34px; quiet: true; text: root.arabic ? "ابدأ القراءة مباشرة" : "Start reading"; clicked => { tour.finish(); } }
+    }
+   }
+  }
+  // The step card: next to the page corner or the menu, or under a title bar button.
+  if tour.step > 0 && root.panel == "" : Rectangle {
+   private property <length> w: min(300px, root.width - 32px);
+   width: self.w; height: card-column.preferred-height;
+   x: !tour.marked ? (root.width - self.w) / 2
+      : tour.step == 1 || tour.step == 2 ? (tour.tx + tour.tw + 18 + self.w / 1px < root.width / 1px - 16 ? (tour.tx + tour.tw + 18) * 1px : max(16px, (tour.tx - 18) * 1px - self.w))
+      : clamp((tour.tx + tour.tw / 2) * 1px - self.w / 2, 16px, root.width - self.w - 16px);
+   y: !tour.marked ? (root.height - self.height) / 2
+      : tour.step == 1 ? clamp((tour.ty + tour.th) * 1px - self.height, 16px, root.height - self.height - 16px)
+      : tour.step == 2 ? clamp(tour.ty * 1px, 16px, root.height - self.height - 16px)
+      : (tour.ty + tour.th + 14) * 1px;
+   border-radius: 14px; border-width: 1px; border-color: UiColors.accent.with-alpha(0.55); background: UiColors.surface;
+   drop-shadow-blur: 22px; drop-shadow-offset-y: 6px; drop-shadow-color: #00000040;
+   TouchArea { }
+   card-column := VerticalLayout { padding: 16px; padding-top: 12px; spacing: 6px;
+    HorizontalLayout { height: 26px;
+     Text { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; vertical-alignment: center; color: UiColors.ink; font-size: 15px; font-weight: 700; horizontal-alignment: root.arabic ? right : left;
+      text: tour.step == 1 ? (tour.turned ? (root.arabic ? "أحسنت!" : "Nicely done!") : (root.arabic ? "قلّب الصفحة" : "Turn the page"))
+       : tour.step == 2 ? (root.arabic ? "قائمة كل آية" : "Every ayah has a menu")
+       : tour.step == 3 ? (root.arabic ? "البحث" : "Search")
+       : tour.step == 4 ? (root.arabic ? "الاستماع" : "Listen")
+       : (root.arabic ? "اجعله لك" : "Make it yours"); }
+     Action { layout-order: root.arabic ? 0 : 1; width: 26px; min-height: 26px; max-height: 26px; quiet: true; symbol: 12; text: root.arabic ? "إنهاء الجولة" : "End the tour"; clicked => { tour.finish(); } }
+    }
+    Text { color: UiColors.muted; font-size: 13px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left;
+     text: tour.step == 1 ? (tour.turned ? (root.arabic ? "ويمكنك أيضًا استخدام أسهم لوحة المفاتيح." : "The arrow keys turn pages too.") : (root.arabic ? "امسك طرف الصفحة واسحبه، كما تفعل بالورق." : "Grab the corner and drag it across, just like paper."))
+      : tour.step == 2 ? (root.arabic ? "اضغط بزر الفأرة الأيمن على أي آية: التفسير والتلاوة والعلامات هنا، والسهم يعرض طرقًا أخرى للاستماع." : "Right-click any ayah for its tafsir, recitation and bookmarks. The arrow shows more ways to listen.")
+      : tour.step == 3 ? (root.arabic ? "ابحث بكلمات أو بآية مثل 2:255، أو انتقل إلى أي سورة أو صفحة أو جزء. " : "Look up words or an ayah like 2:255, or jump to any surah, page or juz. ") + (root.shortcut-rows.length > 0 ? root.shortcut-rows[0].detail : "")
+      : tour.step == 4 ? (root.arabic ? "اختر القارئ، ونزّل السور لتستمع إليها دون اتصال." : "Pick a reciter, and download surahs to listen offline.")
+      : (root.arabic ? "المظاهر وخيارات القراءة والاختصارات. ويمكنك إعادة هذه الجولة من هنا." : "Themes, reading options and shortcuts. You can replay this tour from here."); }
+    HorizontalLayout { height: 32px; spacing: 8px; padding-top: 4px;
+     HorizontalLayout { layout-order: root.arabic ? 3 : 0; alignment: start; spacing: 5px; padding-top: 12px; padding-bottom: 12px;
+      for dot[d] in 5 : Rectangle { width: d + 1 == tour.step ? 14px : 6px; height: 6px; border-radius: 3px; background: d + 1 == tour.step ? UiColors.accent : UiColors.edge; }
+     }
+     Rectangle { layout-order: root.arabic ? 2 : 1; horizontal-stretch: 1; }
+     if tour.step > 1 : Action { layout-order: root.arabic ? 1 : 2; width: 70px; quiet: true; text: root.arabic ? "السابق" : "Back"; clicked => { tour.back(); } }
+     Action { layout-order: root.arabic ? 0 : 3; width: 84px; primary: true; text: tour.step == tour.steps - 1 ? (root.arabic ? "تم" : "Done") : (root.arabic ? "التالي" : "Next"); clicked => { tour.next(); } }
+    }
    }
   }
  }
- }
- Rectangle { width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
- Rectangle { x: root.width - 4px; width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
- Rectangle { width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
- Rectangle { y: root.height - 4px; width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
+ // Window resize edges. Each is pinned to its side: without x and y an element is centred.
+ Rectangle { x: 0px; y: 0px; width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
+ Rectangle { x: root.width - 4px; y: 0px; width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
+ Rectangle { x: 0px; y: 0px; width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
+ Rectangle { x: 0px; y: root.height - 4px; width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
 }
-
-export component ReaderAbout inherits Window {
- title: "About the Slint reading prototype"; width: 440px; height: 310px; default-font-family: "Segoe UI"; background: Palette.background;
- VerticalLayout { padding: 24px; spacing: 16px;
-  Text { text: "Quran Mushaf Reader · Preview"; color: Palette.foreground; font-size: 20px; font-weight: 600; }
-  Text { text: "An independent Slint preview using the original native Quran renderer and verified local resources. Your normal reader and profile remain preserved."; color: Palette.foreground; wrap: word-wrap; }
-  AboutSlint {}
-  Action { text: "Close"; clicked => { root.hide(); } }
- }
-}
-
-
-

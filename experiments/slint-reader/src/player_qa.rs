@@ -68,7 +68,7 @@ impl PlayerQa {
                 ui.set_contextual(false);
                 ui.set_reciter_index(0);
                 ui.set_volume(0.);
-                ui.set_listen_only_ayah(false);
+                ui.set_listen_scope(0);
                 ui.set_remember_speed(false);
                 ui.set_panel("".into());
                 set_page(ui, state, queue, 604, None);

@@ -80,6 +80,8 @@ pub struct Preferences {
     pub bookmarks: Vec<Bookmark>,
     /// Applies at the next launch, because the renderer is chosen before the window exists.
     pub software_rendering: bool,
+    /// Changed keyboard shortcuts by action name; see shortcuts.rs.
+    pub shortcuts: std::collections::BTreeMap<String, String>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -106,6 +108,7 @@ impl Default for Preferences {
             reciter: 0,
             bookmarks: Vec::new(),
             software_rendering: false,
+            shortcuts: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -130,6 +133,7 @@ impl Preferences {
         self.search_shortcut = self.search_shortcut.min(2);
         self.listen_shortcut = self.listen_shortcut.min(1);
         self.options_shortcut = self.options_shortcut.min(1);
+        crate::shortcuts::sanitize(&mut self.shortcuts);
         self.current_page = self.current_page.clamp(1, 604);
         self.volume = if self.volume.is_finite() {
             self.volume.clamp(0., 100.)
@@ -157,21 +161,6 @@ impl Preferences {
     fn contains_bookmark(&self, key: (u32, u32)) -> bool {
         self.bookmarks.iter().any(|bookmark| bookmark.key() == key)
     }
-}
-
-/// Read before the window and profile owner exist, so nothing is written or
-/// locked. Any problem with the file leaves the default for `Profile::load` to report.
-pub fn saved_software_rendering(directory: &Path) -> bool {
-    let path = directory.join(STATE_FILE);
-    if fs::metadata(&path).map_or(true, |file| file.len() > 64 * 1024) {
-        return false;
-    }
-    fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Envelope>(&bytes).ok())
-        .is_some_and(|envelope| {
-            envelope.schema == SCHEMA && envelope.preferences.software_rendering
-        })
 }
 
 #[derive(Serialize, Deserialize)]

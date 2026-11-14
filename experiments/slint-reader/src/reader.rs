@@ -418,6 +418,36 @@ impl Engine {
         arabic: bool,
         mode: i32,
     ) -> Result<Vec<SearchResult>> {
+        // "juz 30", "hizb 12", "rub 3" or the Arabic words go straight to that section.
+        if mode == 0
+            && let Some((kind, number)) = section_query(query)
+        {
+            let label = match (kind, arabic) {
+                (SearchKind::Juz, true) => "الجزء",
+                (SearchKind::Hizb, true) => "الحزب",
+                (_, true) => "الربع",
+                (SearchKind::Juz, false) => "Juz",
+                (SearchKind::Hizb, false) => "Hizb",
+                _ => "Rub",
+            };
+            return Ok(self
+                .resources
+                .browse_sections(kind, &number.to_string())?
+                .into_iter()
+                .map(|hit| SearchResult {
+                    badge: String::new(),
+                    title: format!("{label} {}", hit.key),
+                    text: if arabic {
+                        format!("يبدأ في الصفحة {}", hit.page_number)
+                    } else {
+                        format!("Starts on page {}", hit.page_number)
+                    },
+                    secondary: String::new(),
+                    page: hit.page_number,
+                    key: None,
+                })
+                .collect());
+        }
         // Native bounded search accepts Arabic/English chapter names, a page
         // number, a verse reference, or text. Source strings remain unchanged.
         if mode == 2 {
@@ -498,15 +528,7 @@ impl Engine {
                 SearchResult {
                     badge: surah.map(|s| s.id.to_string()).unwrap_or_default(),
                     title,
-                    secondary: surah
-                        .map(|s| {
-                            if arabic {
-                                s.name_simple.clone()
-                            } else {
-                                s.name_arabic.clone()
-                            }
-                        })
-                        .unwrap_or_default(),
+                    secondary: String::new(),
                     text: surah
                         .map(|s| {
                             if arabic {
@@ -521,6 +543,35 @@ impl Engine {
                 }
             })
             .collect())
+    }
+
+    /// Juz, hizb and rub numbers with their first pages, for the browse pickers.
+    /// The last verse on each of the 604 pages, for "listen to the end of the page".
+    pub fn page_last_verses(&mut self) -> Result<Vec<(u32, u32)>> {
+        let mut last = vec![(0, 0); 604];
+        for hit in self.resources.index()? {
+            if hit.surah > 0 && hit.ayah > 0 && (1..=604).contains(&hit.page_number) {
+                let slot = &mut last[hit.page_number as usize - 1];
+                *slot = (*slot).max((hit.surah, hit.ayah));
+            }
+        }
+        Ok(last)
+    }
+
+    pub fn section_starts(&self) -> Result<[Vec<(u32, u32)>; 3]> {
+        let list = |kind| -> Result<Vec<(u32, u32)>> {
+            Ok(self
+                .resources
+                .browse_sections(kind, "")?
+                .into_iter()
+                .filter_map(|hit| hit.key.parse().ok().map(|n| (n, hit.page_number)))
+                .collect())
+        };
+        Ok([
+            list(SearchKind::Juz)?,
+            list(SearchKind::Hizb)?,
+            list(SearchKind::Rub)?,
+        ])
     }
 
     pub fn study_source(&self, key: (u32, u32), source: u32) -> Result<String> {
@@ -618,18 +669,142 @@ fn highlight_background(
     pixel
 }
 
-fn format_translation_notes(text: String) -> String {
-    // Native Saheeh entries append their validated, numbered notes after the
-    // translated verse. Add a quiet section heading without rewriting either.
-    if let Some(index) = text.find("\r\n\r\n1. ") {
-        let mut result = String::with_capacity(text.len() + 24);
-        result.push_str(&text[..index]);
-        result.push_str("\r\n\r\nFootnotes\r\n────────\r\n");
-        result.push_str(&text[index + 4..]);
-        result
-    } else {
-        text
+/// A section asked for by name and number, such as "juz 30" or "الحزب ١٢".
+fn section_query(query: &str) -> Option<(SearchKind, u32)> {
+    let text: String = query
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            '\u{0660}'..='\u{0669}' => char::from_u32('0' as u32 + c as u32 - 0x0660).unwrap_or(c),
+            '\u{06f0}'..='\u{06f9}' => char::from_u32('0' as u32 + c as u32 - 0x06f0).unwrap_or(c),
+            other => other,
+        })
+        .collect();
+    if text.chars().count() > 24 {
+        return None;
     }
+    let start = text.find(|c: char| c.is_ascii_digit())?;
+    let (word, number) = text.split_at(start);
+    let number: u32 = number.trim().parse().ok()?;
+    let word = word.trim().trim_end_matches(['\'', '’', '.']);
+    let (kind, last) = match word {
+        "juz" | "juzz" | "juzʼ" | "jz" | "para" | "جزء" | "الجزء" | "ج" => {
+            (SearchKind::Juz, 30)
+        }
+        "hizb" | "hezb" | "حزب" | "الحزب" => (SearchKind::Hizb, 60),
+        "rub" | "rubu" | "rub'" | "quarter" | "ربع" | "الربع" => (SearchKind::Rub, 240),
+        _ => return None,
+    };
+    (1..=last).contains(&number).then_some((kind, number))
+}
+
+#[cfg(test)]
+#[test]
+fn section_queries_are_read_in_both_languages() {
+    assert!(matches!(
+        section_query("Juz 30"),
+        Some((SearchKind::Juz, 30))
+    ));
+    assert!(matches!(
+        section_query("الجزء ٣٠"),
+        Some((SearchKind::Juz, 30))
+    ));
+    assert!(matches!(
+        section_query("hizb12"),
+        Some((SearchKind::Hizb, 12))
+    ));
+    assert!(matches!(
+        section_query("ربع 240"),
+        Some((SearchKind::Rub, 240))
+    ));
+    assert!(section_query("juz 31").is_none());
+    assert!(section_query("2:255").is_none());
+    assert!(section_query("30").is_none());
+}
+
+fn superscript(number: &str) -> String {
+    number
+        .chars()
+        .map(|c| match c {
+            '0' => '⁰',
+            '1' => '¹',
+            '2' => '²',
+            '3' => '³',
+            '4' => '⁴',
+            '5' => '⁵',
+            '6' => '⁶',
+            '7' => '⁷',
+            '8' => '⁸',
+            '9' => '⁹',
+            other => other,
+        })
+        .collect()
+}
+
+fn format_translation_notes(text: String) -> String {
+    // Native Saheeh entries append their numbered notes after the translated
+    // verse, and mark each note in the verse with its number. Show the markers
+    // raised, as printed footnotes are, and the notes under a quiet heading.
+    // Only numbers that name an existing note change; nothing is reordered.
+    let Some(index) = text.find("\r\n\r\n1. ") else {
+        return text;
+    };
+    let (verse, notes) = (&text[..index], &text[index + 4..]);
+    let count = notes
+        .split("\r\n\r\n")
+        .filter(|note| {
+            note.split_once(". ")
+                .is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        })
+        .count();
+    let chars: Vec<char> = verse.chars().collect();
+    let mut marked = String::with_capacity(verse.len() + 16);
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let after_word = i > 0
+            && (chars[i - 1].is_alphabetic()
+                || matches!(
+                    chars[i - 1],
+                    '.' | ',' | ';' | ':' | ')' | '"' | '\'' | '’' | '”'
+                ));
+        if c.is_ascii_digit() && after_word {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            let number: String = chars[start..i].iter().collect();
+            let ends = i == chars.len() || !chars[i].is_alphanumeric();
+            if ends
+                && number
+                    .parse::<usize>()
+                    .is_ok_and(|n| (1..=count).contains(&n))
+            {
+                marked.push_str(&superscript(&number));
+            } else {
+                marked.push_str(&number);
+            }
+            continue;
+        }
+        marked.push(c);
+        i += 1;
+    }
+    let notes = notes
+        .split("\r\n\r\n")
+        .map(|note| match note.split_once(". ") {
+            Some((n, rest)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => {
+                format!(
+                    "{} {}",
+                    superscript(n),
+                    rest.trim_start_matches("- ").trim_start()
+                )
+            }
+            _ => note.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n\r\n");
+    format!("{marked}\r\n\r\nNotes\r\n{notes}")
 }
 
 #[cfg(test)]
@@ -637,11 +812,16 @@ mod footnote_format_tests {
     use super::format_translation_notes;
     #[test]
     fn notes_get_a_heading_without_losing_or_reordering_source_text() {
-        let source = "Translation.\r\n\r\n1. First note.\r\n\r\n2. Second note.";
+        let source = "We gave judgement1 and the 2 tablets, worlds.2\r\n\r\n1. - First note.\r\n\r\n2. Second note.";
         let formatted = format_translation_notes(source.to_owned());
         assert_eq!(
-            formatted.replace("\r\n\r\nFootnotes\r\n────────\r\n", "\r\n\r\n"),
-            source
+            formatted,
+            "We gave judgement¹ and the 2 tablets, worlds.²\r\n\r\nNotes\r\n¹ First note.\r\n\r\n² Second note."
+        );
+        // A number that names no note stays as it was.
+        assert_eq!(
+            format_translation_notes("Verse3 here.\r\n\r\n1. Note.".into()),
+            "Verse3 here.\r\n\r\nNotes\r\n¹ Note."
         );
         assert_eq!(
             format_translation_notes("Translation without notes.".into()),

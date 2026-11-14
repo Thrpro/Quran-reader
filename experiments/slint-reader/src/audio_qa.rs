@@ -156,7 +156,7 @@ impl Probe {
         );
         match self.phase {
             0 => {
-                self.audio.play(0, (112, 3), false, 1., 0.)?;
+                self.audio.play(0, (112, 3), None, 1., 0.)?;
                 self.audio.toggle()?;
                 self.phase = 1;
             }
