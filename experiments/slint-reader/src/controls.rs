@@ -48,8 +48,17 @@ struct Inner {
     explicit_rate: Cell<bool>,
     /// Where a recitation that spans surahs ends; each surah plays in turn.
     listen_end: Cell<Option<(u32, u32)>>,
-    /// Whether the surah being recited is saved, for its reciter: (reciter, surah, saved).
-    saved_check: Cell<Option<(usize, u32, bool)>>,
+    /// The latest download inventory from a background scan.
+    scanned: std::sync::Arc<std::sync::Mutex<Option<Vec<audio_bridge::DownloadedSurah>>>>,
+    /// Downloaded tafsir books; None when the profile folder cannot hold them.
+    tafsirs: Option<std::sync::Arc<tafsir_library::Library>>,
+    /// Which of tafsir_library::SOURCES are on this PC.
+    installed_tafsirs: RefCell<Vec<usize>>,
+    /// The download or removal under way, the book it is for, and its generation.
+    tafsir_job: RefCell<Option<tafsir_library::Job>>,
+    tafsir_job_source: Cell<Option<usize>>,
+    tafsir_generation: Cell<u64>,
+    tafsir_timer: slint::Timer,
     qa: bool,
 }
 pub struct Controller {
@@ -103,6 +112,7 @@ impl Controller {
         ui.set_study_size(prefs.study_text_size as f32);
         ui.set_follow_recitation(prefs.follow_recitation);
         ui.set_open_tafsir_on_click(prefs.open_tafsir_on_click);
+        ui.set_software_rendering(prefs.software_rendering);
         ui.set_search_shortcut(prefs.search_shortcut as i32);
         ui.set_listen_shortcut(prefs.listen_shortcut as i32);
         ui.set_options_shortcut(prefs.options_shortcut as i32);
@@ -116,6 +126,11 @@ impl Controller {
         });
         ui.set_reciter_index(prefs.reciter.min(audio::RECITERS.len() - 1) as i32);
         ui.set_session_only(error);
+        let recovered = profile
+            .as_ref()
+            .and_then(|p| p.recovered())
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned());
         // Say why, so an already-open window is not mistaken for lost settings.
         if let Some(reason) = &load_error {
             let in_use = reason.contains("already open") || reason.contains("exclusively");
@@ -137,6 +152,16 @@ impl Controller {
             profile: RefCell::new(profile),
             prefs: RefCell::new(prefs.clone()),
             surahs,
+            tafsirs: if qa {
+                None
+            } else {
+                tafsir_library::Library::new(&profile_path).ok()
+            },
+            installed_tafsirs: RefCell::new(Vec::new()),
+            tafsir_job: RefCell::new(None),
+            tafsir_job_source: Cell::new(None),
+            tafsir_generation: Cell::new(0),
+            tafsir_timer: slint::Timer::default(),
             audio: RefCell::new(audio_bridge::AudioBridge::new(profile_path)),
             downloads: RefCell::new(Vec::new()),
             last_audio: RefCell::new(None),
@@ -145,7 +170,7 @@ impl Controller {
             initial_motion: motion,
             explicit_rate: Cell::new(false),
             listen_end: Cell::new(None),
-            saved_check: Cell::new(None),
+            scanned: std::sync::Arc::new(std::sync::Mutex::new(None)),
             qa,
         });
         let result = Self {
@@ -158,6 +183,12 @@ impl Controller {
         };
         result.reciter_names(ui);
         Self::surah_names(ui, &result.inner);
+        if let Some(library) = &result.inner.tafsirs {
+            *result.inner.installed_tafsirs.borrow_mut() =
+                library.installed_ids().unwrap_or_default();
+        }
+        Self::study_sources(ui, &result.inner);
+        Self::tafsir_rows(ui, &result.inner);
         if error {
             result.notice(
                 ui,
@@ -166,6 +197,19 @@ impl Controller {
                 } else {
                     "Saved preferences could not be opened. You can still read in this session."
                 },
+            );
+        }
+        if let Some(name) = recovered {
+            show_error(
+                ui,
+                &format!(
+                    "Your settings file was damaged, so the last good copy was restored. The damaged file was kept as {name}."
+                ),
+                &format!(
+                    "كان ملف الإعدادات تالفًا، فاستُعيدت آخر نسخة سليمة. حُفظ الملف التالف باسم {name}."
+                ),
+                "",
+                false,
             );
         }
         Ok(result)
@@ -262,9 +306,266 @@ impl Controller {
             format!("{value:.1} MB")
         }
     }
-    fn download_rows(ui: &ReaderWindow, inner: &Inner) {
+    /// Scan saved downloads on a background thread; the rows update when it ends.
+    /// The library of downloaded tafsir books, shared with the page worker.
+    pub fn tafsir_library(&self) -> Option<std::sync::Arc<tafsir_library::Library>> {
+        self.inner.tafsirs.clone()
+    }
+
+    /// The tafsir sources for the interface language: the included ones, then
+    /// downloaded books. A choice that is no longer available becomes the first.
+    fn study_sources(ui: &ReaderWindow, inner: &Inner) {
         let arabic = ui.get_arabic();
-        let list = inner.audio.borrow().downloaded();
+        let ids =
+            app_core::study_source_ids(arabic, inner.installed_tafsirs.borrow().iter().copied());
+        let mut names: Vec<slint::SharedString> = ids
+            .iter()
+            .map(|id| {
+                match *id {
+                    0 => "المختصر في التفسير",
+                    1 => "تفسير السعدي",
+                    2 => "Saheeh International · translation",
+                    n => {
+                        let book = &tafsir_library::SOURCES[n - 3];
+                        if arabic {
+                            book.name_arabic
+                        } else {
+                            book.name_english
+                        }
+                    }
+                }
+                .into()
+            })
+            .collect();
+        // A last entry leads to the tafsir books, when there are any for this language.
+        let more = inner.tafsirs.is_some()
+            && tafsir_library::SOURCES
+                .iter()
+                .any(|book| book.arabic == arabic && book.download_issue().is_none());
+        if more {
+            names.push(
+                if arabic {
+                    "إضافة تفسير…"
+                } else {
+                    "Add a tafsir…"
+                }
+                .into(),
+            );
+        }
+        let current = ui.get_study_source().max(0) as usize;
+        let index = ids.iter().position(|id| *id == current).unwrap_or(0);
+        if ids[index] != current {
+            ui.set_study_source(ids[index] as i32);
+        }
+        ui.set_study_source_names(ModelRc::new(VecModel::from(names)));
+        ui.set_study_source_ids(ModelRc::new(VecModel::from(
+            ids.iter().map(|id| *id as i32).collect::<Vec<_>>(),
+        )));
+        ui.set_study_source_index(index as i32);
+    }
+
+    /// Rows for the tafsir books in the interface language that can be
+    /// downloaded, or are already on this PC.
+    fn tafsir_rows(ui: &ReaderWindow, inner: &Inner) {
+        let arabic = ui.get_arabic();
+        let Some(_) = &inner.tafsirs else {
+            ui.set_tafsir_rows(ModelRc::default());
+            return;
+        };
+        let installed = inner.installed_tafsirs.borrow();
+        let active = inner.tafsir_job_source.get();
+        let running = inner.tafsir_job.borrow().is_some();
+        let rows: Vec<TafsirRow> = tafsir_library::SOURCES
+            .iter()
+            .enumerate()
+            .filter(|(i, book)| {
+                book.arabic == arabic && (installed.contains(i) || book.download_issue().is_none())
+            })
+            .map(|(i, book)| {
+                let on_pc = installed.contains(&i);
+                let mine = running && active == Some(i);
+                TafsirRow {
+                    source: i as i32,
+                    title: if arabic {
+                        book.name_arabic
+                    } else {
+                        book.name_english
+                    }
+                    .into(),
+                    detail: if mine {
+                        if arabic {
+                            "جارٍ العمل…"
+                        } else {
+                            "Working…"
+                        }
+                    } else if on_pc {
+                        if arabic {
+                            "محفوظ على هذا الجهاز · يعمل دون اتصال"
+                        } else {
+                            "On this PC · works offline"
+                        }
+                    } else if arabic {
+                        "من Quran.com"
+                    } else {
+                        "From Quran.com"
+                    }
+                    .into(),
+                    action: if mine {
+                        if arabic { "إلغاء" } else { "Cancel" }
+                    } else if on_pc {
+                        if arabic { "حذف" } else { "Remove" }
+                    } else if arabic {
+                        "تنزيل"
+                    } else {
+                        "Download"
+                    }
+                    .into(),
+                    installed: on_pc,
+                    enabled: !running || mine,
+                }
+            })
+            .collect();
+        ui.set_tafsir_rows(ModelRc::new(VecModel::from(rows)));
+    }
+
+    /// Reads what the tafsir job has done so far; stops when it ends.
+    fn poll_tafsir(ui: &ReaderWindow, inner: &Inner) {
+        let arabic = ui.get_arabic();
+        let generation = inner.tafsir_generation.get();
+        let mut finished = false;
+        for _ in 0..32 {
+            let event = {
+                let job = inner.tafsir_job.borrow();
+                let Some(job) = job.as_ref() else { return };
+                match job.try_recv() {
+                    Ok(event) => event,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(_) => {
+                        ui.set_tafsir_status(
+                            if arabic {
+                                "توقفت العملية على نحو غير متوقع. حاول مجددًا."
+                            } else {
+                                "The operation stopped unexpectedly. Please try again."
+                            }
+                            .into(),
+                        );
+                        finished = true;
+                        break;
+                    }
+                }
+            };
+            use tafsir_library::Event;
+            match event {
+                Event::Progress {
+                    generation: g,
+                    chapters,
+                    total,
+                    bytes,
+                    percent,
+                } if g == generation => {
+                    ui.set_tafsir_progress(percent.min(100) as f32 / 100.);
+                    ui.set_tafsir_status(
+                        if arabic {
+                            format!("جارٍ التنزيل: {percent}٪ · {chapters} من {total} سورة · {:.1} ميغابايت", bytes as f64 / 1_048_576.)
+                        } else {
+                            format!("Downloading: {percent}% · {chapters} of {total} surahs · {:.1} MB", bytes as f64 / 1_048_576.)
+                        }
+                        .into(),
+                    );
+                }
+                Event::Complete { generation: g, .. } | Event::Removed { generation: g, .. }
+                    if g == generation =>
+                {
+                    let removed = matches!(event, Event::Removed { .. });
+                    if let Some(library) = &inner.tafsirs {
+                        *inner.installed_tafsirs.borrow_mut() =
+                            library.installed_ids().unwrap_or_default();
+                    }
+                    ui.set_tafsir_status(
+                        match (removed, arabic) {
+                            (false, true) => "اكتمل التنزيل. اختره من قائمة مصادر التفسير.",
+                            (false, false) => "Downloaded. Choose it from the tafsir source list.",
+                            (true, true) => "حُذف كتاب التفسير من هذا الجهاز.",
+                            (true, false) => "The tafsir book was removed from this PC.",
+                        }
+                        .into(),
+                    );
+                    finished = true;
+                }
+                Event::Failed {
+                    generation: g,
+                    message,
+                } if g == generation => {
+                    ui.set_tafsir_status(
+                        if arabic {
+                            "تعذّر إكمال العملية. تحقق من اتصالك وحاول مجددًا."
+                        } else {
+                            "This couldn't be completed. Check your connection and try again."
+                        }
+                        .into(),
+                    );
+                    show_error(
+                        ui,
+                        "The tafsir book couldn't be downloaded or removed.",
+                        "تعذّر تنزيل كتاب التفسير أو حذفه.",
+                        &message,
+                        false,
+                    );
+                    finished = true;
+                }
+                Event::Cancelled { generation: g } if g == generation => {
+                    ui.set_tafsir_status(
+                        if arabic {
+                            "أُلغي التنزيل."
+                        } else {
+                            "Download cancelled."
+                        }
+                        .into(),
+                    );
+                    finished = true;
+                }
+                _ => {}
+            }
+            if finished {
+                break;
+            }
+        }
+        if finished {
+            *inner.tafsir_job.borrow_mut() = None;
+            inner.tafsir_job_source.set(None);
+            inner.tafsir_timer.stop();
+            ui.set_tafsir_progress(-1.);
+            let before = ui.get_study_source();
+            Self::study_sources(ui, inner);
+            Self::tafsir_rows(ui, inner);
+            // A removed book that was chosen gives way to an included source.
+            if ui.get_study_source() != before {
+                ui.invoke_preferences_changed();
+            }
+        }
+    }
+
+    fn download_rows(ui: &ReaderWindow, inner: &Inner) {
+        let root = inner.audio.borrow().profile_root();
+        let slot = inner.scanned.clone();
+        let weak = ui.as_weak();
+        std::thread::spawn(move || {
+            let list = audio_bridge::scan_downloads(&root);
+            if let Ok(mut slot) = slot.lock() {
+                *slot = Some(list);
+            }
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.invoke_downloads_scanned();
+                }
+            });
+        });
+    }
+    fn apply_download_rows(ui: &ReaderWindow, inner: &Inner) {
+        let arabic = ui.get_arabic();
+        let Some(list) = inner.scanned.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
         let rows = list
             .iter()
             .map(|d| {
@@ -292,9 +593,12 @@ impl Controller {
                             Self::megabytes(d.bytes, arabic)
                         )
                     } else if arabic {
-                        format!("{} · غير مكتمل، نزّله مرة أخرى", reciter.arabic)
+                        format!("{} · غير مكتمل: احذفه ثم نزّله مرة أخرى", reciter.arabic)
                     } else {
-                        format!("{} · Incomplete, download it again", reciter.english)
+                        format!(
+                            "{} · Incomplete: delete it, then download it again",
+                            reciter.english
+                        )
                     }
                     .into(),
                 }
@@ -304,6 +608,19 @@ impl Controller {
         ui.set_downloads_storage(Self::megabytes(total, arabic).into());
         ui.set_downloads(ModelRc::new(VecModel::from(rows)));
         *inner.downloads.borrow_mut() = list;
+        Self::update_current_saved(ui, inner);
+    }
+    /// Whether the recited surah is saved, from the latest inventory.
+    fn update_current_saved(ui: &ReaderWindow, inner: &Inner) {
+        let recited = inner.audio.borrow().current_surah();
+        let saved = recited.is_some_and(|(reciter, surah)| {
+            inner
+                .downloads
+                .borrow()
+                .iter()
+                .any(|d| d.reciter == reciter && d.surah == surah && d.complete)
+        });
+        ui.set_current_saved(saved);
     }
     fn surah_title(inner: &Inner, surah: u32, arabic: bool) -> String {
         inner
@@ -380,10 +697,6 @@ impl Controller {
                         false
                     }
                     Some(audio_bridge::DownloadNotice::Done) => {
-                        inner.saved_check.set(None);
-                        if inner.audio.borrow().current_surah() == target {
-                            ui.set_current_saved(true);
-                        }
                         let title = target
                             .map(|(_, surah)| Self::surah_title(&inner, surah, arabic))
                             .unwrap_or_default();
@@ -460,16 +773,11 @@ impl Controller {
         prefs.single_page = ui.get_single_page();
         prefs.follow_recitation = ui.get_follow_recitation();
         prefs.open_tafsir_on_click = ui.get_open_tafsir_on_click();
-        // No longer offered in Options: clear an earlier saved choice.
-        prefs.software_rendering = false;
+        prefs.software_rendering = ui.get_software_rendering();
         prefs.search_shortcut = ui.get_search_shortcut().max(0) as u32;
         prefs.listen_shortcut = ui.get_listen_shortcut().max(0) as u32;
         prefs.options_shortcut = ui.get_options_shortcut().max(0) as u32;
-        prefs.study_source = if prefs.arabic {
-            ui.get_study_source().clamp(0, 1) as u32
-        } else {
-            2
-        };
+        prefs.study_source = ui.get_study_source().clamp(0, 9) as u32;
         prefs.study_text_size = ui.get_study_size().clamp(14., 26.).round() as u32;
         prefs.current_page = state.borrow().page;
         prefs.bookmarks = state.borrow().saved_bookmarks.clone();
@@ -554,20 +862,49 @@ impl Controller {
                     .into(),
             );
             let recited = inner.audio.borrow().current_surah();
-            let saved = recited.is_some_and(|(reciter, surah)| match inner.saved_check.get() {
-                Some((r, s, saved)) if r == reciter && s == surah => saved,
-                _ => {
-                    let saved = inner
-                        .audio
-                        .borrow()
-                        .downloaded()
-                        .iter()
-                        .any(|d| d.reciter == reciter && d.surah == surah && d.complete);
-                    inner.saved_check.set(Some((reciter, surah, saved)));
-                    saved
-                }
-            });
-            ui.set_current_saved(saved);
+            Self::update_current_saved(ui, inner);
+            // What a download of the recited surah would be: its name and reciter,
+            // and its size when the recording's length is known (about 128 kbit/s).
+            if let Some((reciter, surah)) = recited {
+                let arabic = ui.get_arabic();
+                let voice = &audio::RECITERS[reciter];
+                // Shown to the reader, so without the \\?\ prefix of a resolved path.
+                let folder = inner
+                    .audio
+                    .borrow()
+                    .profile_root()
+                    .join("AudioStore")
+                    .display()
+                    .to_string();
+                ui.set_download_folder(
+                    folder
+                        .strip_prefix(r"\\?\")
+                        .unwrap_or(&folder)
+                        .to_string()
+                        .into(),
+                );
+                ui.set_download_target(
+                    format!(
+                        "{} ({})",
+                        Self::surah_title(inner, surah, arabic),
+                        if arabic { voice.arabic } else { voice.english }
+                    )
+                    .into(),
+                );
+                let megabytes = snapshot.duration_ms as f64 / 60_000. * 0.96;
+                ui.set_download_estimate(
+                    if snapshot.continuous && snapshot.duration_ms > 0 {
+                        if arabic {
+                            format!("نحو {} ميغابايت", megabytes.ceil())
+                        } else {
+                            format!("About {} MB", megabytes.ceil())
+                        }
+                    } else {
+                        String::new()
+                    }
+                    .into(),
+                );
+            }
         }
         let current = if snapshot.active {
             snapshot.current
@@ -789,7 +1126,16 @@ impl Controller {
                 ui.set_player_expanded(true);
                 Self::start_poll(ui, state, queue, inner, timer);
             }
-            Err(error) => ui.set_audio_status(error.to_string().into()),
+            Err(error) => {
+                ui.set_audio_status(error.to_string().into());
+                show_error(
+                    ui,
+                    "The recitation couldn't start.",
+                    "تعذّر بدء التلاوة.",
+                    &error.to_string(),
+                    false,
+                );
+            }
         }
     }
     /// When a surah in a longer range has finished, play the next one with the
@@ -860,14 +1206,8 @@ impl Controller {
                         }
                         *inner.last_audio.borrow_mut() = None;
                     }
-                    let source = if ui.get_arabic() {
-                        ui.get_study_source().clamp(0, 1)
-                    } else {
-                        2
-                    };
-                    if source != ui.get_study_source() {
-                        ui.set_study_source(source);
-                    }
+                    Self::study_sources(&ui, &inner);
+                    Self::tafsir_rows(&ui, &inner);
                     // Also update terminal/paused players, whose polling timer
                     // may have stopped, and respond immediately to Follow.
                     let snapshot = { inner.audio.borrow().snapshot(ui.get_arabic()) };
@@ -940,9 +1280,91 @@ impl Controller {
             let state = state.clone();
             let queue = queue.clone();
             let weak = ui.as_weak();
+            let inner = self.inner.clone();
+            {
+                let inner = self.inner.clone();
+                let weak = ui.as_weak();
+                ui.on_tafsir_action(move |source| {
+                    let Some(ui) = weak.upgrade() else { return };
+                    let arabic = ui.get_arabic();
+                    let Ok(source) = usize::try_from(source) else {
+                        return;
+                    };
+                    if source >= tafsir_library::SOURCES.len() {
+                        return;
+                    }
+                    let Some(library) = inner.tafsirs.clone() else {
+                        return;
+                    };
+                    if inner.tafsir_job.borrow().is_some() {
+                        // Only the book being worked on can be cancelled.
+                        if inner.tafsir_job_source.get() == Some(source) {
+                            if let Some(job) = inner.tafsir_job.borrow().as_ref() {
+                                job.cancel();
+                            }
+                            ui.set_tafsir_status(
+                                if arabic {
+                                    "جارٍ الإلغاء…"
+                                } else {
+                                    "Cancelling…"
+                                }
+                                .into(),
+                            );
+                        }
+                        return;
+                    }
+                    let remove = inner.installed_tafsirs.borrow().contains(&source);
+                    let generation = inner.tafsir_generation.get().wrapping_add(1);
+                    inner.tafsir_generation.set(generation);
+                    let job = if remove {
+                        library.remove_async(source, generation)
+                    } else {
+                        library.download(source, generation)
+                    };
+                    match job {
+                        Ok(job) => {
+                            *inner.tafsir_job.borrow_mut() = Some(job);
+                            inner.tafsir_job_source.set(Some(source));
+                            ui.set_tafsir_progress(if remove { -1. } else { 0. });
+                            ui.set_tafsir_status(
+                                match (remove, arabic) {
+                                    (false, true) => "جارٍ تجهيز التنزيل…",
+                                    (false, false) => "Preparing the download…",
+                                    (true, true) => "جارٍ الحذف…",
+                                    (true, false) => "Removing…",
+                                }
+                                .into(),
+                            );
+                            let weak = ui.as_weak();
+                            let polled = inner.clone();
+                            inner.tafsir_timer.start(
+                                slint::TimerMode::Repeated,
+                                std::time::Duration::from_millis(100),
+                                move || {
+                                    if let Some(ui) = weak.upgrade() {
+                                        Self::poll_tafsir(&ui, &polled);
+                                    }
+                                },
+                            );
+                        }
+                        Err(error) => {
+                            ui.set_tafsir_status("".into());
+                            show_error(
+                                &ui,
+                                "The tafsir book couldn't be downloaded or removed.",
+                                "تعذّر تنزيل كتاب التفسير أو حذفه.",
+                                &error.to_string(),
+                                false,
+                            );
+                        }
+                    }
+                    Self::tafsir_rows(&ui, &inner);
+                });
+            }
             ui.on_study_source_changed(move |source| {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_study_source(source);
+                    Self::study_sources(&ui, &inner);
                     ui.invoke_preferences_changed();
                     request_render(&ui, &state, &queue);
                 }
@@ -1181,9 +1603,20 @@ impl Controller {
                     let snapshot = { inner.audio.borrow().snapshot(ui.get_arabic()) };
                     if snapshot.completed || snapshot.error {
                         let rate = Self::new_play_rate(&ui, &inner);
-                        let _ = inner.audio.borrow_mut().set_speed(rate);
+                        if inner.audio.borrow_mut().set_speed(rate).is_err() {
+                            ui.set_playback_rate(1.);
+                        }
                     }
                     let result = inner.audio.borrow_mut().toggle();
+                    if let Err(error) = &result {
+                        show_error(
+                            &ui,
+                            "The recitation couldn't be paused or resumed.",
+                            "تعذّر إيقاف التلاوة أو متابعتها.",
+                            &error.to_string(),
+                            false,
+                        );
+                    }
                     if result.is_ok() {
                         Self::start_poll(
                             &ui,
@@ -1228,10 +1661,19 @@ impl Controller {
                 if let Some(ui) = weak.upgrade()
                     && fraction.is_finite()
                 {
-                    let _ = inner
+                    let result = inner
                         .audio
                         .borrow_mut()
                         .seek_slider((fraction.clamp(0., 1.) * 10000.).round() as u32);
+                    if let Err(error) = result {
+                        show_error(
+                            &ui,
+                            "That point in the recitation couldn't be reached.",
+                            "تعذّر الانتقال إلى هذا الموضع من التلاوة.",
+                            &error.to_string(),
+                            false,
+                        );
+                    }
                     Self::start_poll(
                         &ui,
                         state.clone(),
@@ -1250,10 +1692,19 @@ impl Controller {
             let timer = self.audio_timer.clone();
             ui.on_audio_skip(move |seconds| {
                 if let Some(ui) = weak.upgrade() {
-                    let _ = inner
+                    let result = inner
                         .audio
                         .borrow_mut()
                         .seek_delta(i64::from(seconds.clamp(-10, 10)) * 1000);
+                    if let Err(error) = result {
+                        show_error(
+                            &ui,
+                            "The recitation couldn't skip.",
+                            "تعذّر التقديم أو الرجوع في التلاوة.",
+                            &error.to_string(),
+                            false,
+                        );
+                    }
                     Self::start_poll(
                         &ui,
                         state.clone(),
@@ -1273,15 +1724,27 @@ impl Controller {
                 if let Some(ui) = weak.upgrade()
                     && rate.is_finite()
                 {
+                    let previous = ui.get_playback_rate();
                     ui.set_playback_rate(rate.clamp(0.5, 2.));
                     let snapshot = { inner.audio.borrow().snapshot(ui.get_arabic()) };
                     inner
                         .explicit_rate
                         .set(!snapshot.active || snapshot.completed || snapshot.error);
-                    let _ = inner
+                    let result = inner
                         .audio
                         .borrow_mut()
                         .set_speed(f64::from(rate.clamp(0.5, 2.)));
+                    if let Err(error) = result {
+                        // Show and save only the speed that took effect.
+                        ui.set_playback_rate(previous);
+                        show_error(
+                            &ui,
+                            "The playback speed couldn't be changed.",
+                            "تعذّر تغيير سرعة التلاوة.",
+                            &error.to_string(),
+                            false,
+                        );
+                    }
                     Self::poll_once(&ui, &state, &queue, &inner);
                     ui.invoke_preferences_changed();
                 }
@@ -1294,12 +1757,32 @@ impl Controller {
                 if let Some(ui) = weak.upgrade()
                     && volume.is_finite()
                 {
+                    let previous = ui.get_volume();
                     ui.set_volume(volume.clamp(0., 100.));
-                    let _ = inner
+                    let result = inner
                         .audio
                         .borrow_mut()
                         .set_volume(f64::from(volume.clamp(0., 100.)) / 100.);
+                    if let Err(error) = result {
+                        ui.set_volume(previous);
+                        show_error(
+                            &ui,
+                            "The volume couldn't be changed.",
+                            "تعذّر تغيير مستوى الصوت.",
+                            &error.to_string(),
+                            false,
+                        );
+                    }
                     ui.invoke_preferences_changed();
+                }
+            });
+        }
+        {
+            let inner = self.inner.clone();
+            let weak = ui.as_weak();
+            ui.on_downloads_scanned(move || {
+                if let Some(ui) = weak.upgrade() {
+                    Self::apply_download_rows(&ui, &inner);
                 }
             });
         }

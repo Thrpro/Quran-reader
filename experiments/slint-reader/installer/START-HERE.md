@@ -4,7 +4,7 @@ Run the installer, or extract the whole ZIP to a folder and run **QuranMushaf.Sl
 
 What's new in each version is in the release notes: https://github.com/Thrpro/Quran-reader/releases
 
-If you see drawing problems or high CPU use, turn on **Options → Use software rendering** and restart. Software rendering is much less smooth, so leave it off otherwise. To prefer the dedicated GPU on a laptop with two, start the app with `--gpu performance`.
+If you see drawing problems or high CPU use, start the app with `--renderer software` (for example, add it to the end of the shortcut's Target). Software rendering is much less smooth, so use it only if you need it. If an earlier version had it turned on, Options shows a button to turn it off. To prefer the dedicated GPU on a laptop with two, start the app with `--gpu performance`.
 
 ## Quran resources
 

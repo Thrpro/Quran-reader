@@ -1,6 +1,6 @@
 [package]
 name = "quran-slint-reader-prototype"
-version = "0.17.0"
+version = "0.18.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
@@ -42,6 +42,19 @@ opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# For trying changes while developing only: `cargo build --profile fast`.
+# The same code, compiled across all processor threads without link-time
+# optimisation, so a rebuild takes minutes instead of tens of minutes. Shipped
+# builds (installer, ZIP, CI) always use the release profile above, and
+# performance measurements belong on a release build.
+[profile.fast]
+inherits = "release"
+opt-level = 2
+lto = false
+codegen-units = 16
+incremental = true
+strip = false
 
 [profile.dev]
 debug = 0

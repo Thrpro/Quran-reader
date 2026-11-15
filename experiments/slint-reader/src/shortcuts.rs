@@ -76,7 +76,7 @@ pub fn resolve(saved: &BTreeMap<String, String>, legacy: [u32; 3]) -> [String; 7
     std::array::from_fn(|i| {
         saved
             .get(ACTIONS[i].name)
-            .filter(|value| value.is_empty() || parse(value).is_some())
+            .filter(|value| value.is_empty() || (parse(value).is_some() && !reserved_text(value)))
             .cloned()
             .or_else(|| legacy_preset(i).map(str::to_string))
             .unwrap_or_else(|| ACTIONS[i].default.to_string())
@@ -88,6 +88,33 @@ pub fn sanitize(saved: &mut BTreeMap<String, String>) {
     saved.retain(|name, value| {
         ACTIONS.iter().any(|a| a.name == name) && (value.is_empty() || parse(value).is_some())
     });
+}
+
+/// A stored combination that text editing needs (see `reserved_for_editing`).
+fn reserved_text(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("Ctrl+") else {
+        return false;
+    };
+    let key = rest.strip_prefix("Shift+").unwrap_or(rest);
+    !key.starts_with("Alt+")
+        && matches!(
+            key,
+            "KeyA"
+                | "KeyC"
+                | "KeyV"
+                | "KeyX"
+                | "KeyZ"
+                | "KeyY"
+                | "Insert"
+                | "ArrowLeft"
+                | "ArrowRight"
+                | "ArrowUp"
+                | "ArrowDown"
+                | "Home"
+                | "End"
+                | "Backspace"
+                | "Delete"
+        )
 }
 
 fn is_modifier(code: KeyCode) -> bool {
@@ -126,6 +153,9 @@ pub fn combo(modifiers: ModifiersState, code: KeyCode) -> Option<String> {
     if alt && !ctrl && matches!(code, KeyCode::F4 | KeyCode::Tab | KeyCode::Space) {
         return None;
     }
+    if reserved_for_editing(modifiers, code) {
+        return None;
+    }
     let mut text = String::new();
     if ctrl {
         text.push_str("Ctrl+");
@@ -138,6 +168,31 @@ pub fn combo(modifiers: ModifiersState, code: KeyCode) -> Option<String> {
     }
     text.push_str(&format!("{code:?}"));
     parse(&text).map(|_| text)
+}
+
+/// Keys that text fields need: select all, copy, cut, paste, undo, redo and
+/// moving or deleting by word. These can never become app shortcuts.
+fn reserved_for_editing(modifiers: ModifiersState, code: KeyCode) -> bool {
+    modifiers.control_key()
+        && !modifiers.alt_key()
+        && matches!(
+            code,
+            KeyCode::KeyA
+                | KeyCode::KeyC
+                | KeyCode::KeyV
+                | KeyCode::KeyX
+                | KeyCode::KeyZ
+                | KeyCode::KeyY
+                | KeyCode::Insert
+                | KeyCode::ArrowLeft
+                | KeyCode::ArrowRight
+                | KeyCode::ArrowUp
+                | KeyCode::ArrowDown
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::Backspace
+                | KeyCode::Delete
+        )
 }
 
 /// Checks a stored value: modifiers in order, then a key name of letters and digits.
@@ -237,6 +292,25 @@ mod tests {
         assert_eq!(combo(ModifiersState::empty(), KeyCode::KeyF), None);
         assert_eq!(combo(ModifiersState::CONTROL, KeyCode::ControlLeft), None);
         assert_eq!(combo(ModifiersState::ALT, KeyCode::F4), None);
+        for key in [
+            KeyCode::KeyA,
+            KeyCode::KeyC,
+            KeyCode::KeyV,
+            KeyCode::KeyX,
+            KeyCode::KeyZ,
+            KeyCode::KeyY,
+            KeyCode::Backspace,
+        ] {
+            assert_eq!(combo(ModifiersState::CONTROL, key), None);
+        }
+        assert_eq!(
+            combo(
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                KeyCode::KeyZ
+            ),
+            None
+        );
+        assert!(combo(ModifiersState::CONTROL, KeyCode::KeyB).is_some());
     }
 
     #[test]

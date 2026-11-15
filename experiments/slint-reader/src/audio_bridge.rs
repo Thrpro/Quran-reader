@@ -341,47 +341,8 @@ impl AudioBridge {
         latest
     }
 
-    /// Surahs saved for offline listening, read from the native stores' own
-    /// folder names. Partial or unknown folders are ignored.
-    pub fn downloaded(&self) -> Vec<DownloadedSurah> {
-        let store = self.profile_root.join("AudioStore");
-        let mut found = Vec::new();
-        for (folder, continuous) in [
-            (store.join("Downloads"), false),
-            (store.join("Continuous"), true),
-        ] {
-            let Ok(entries) = fs::read_dir(&folder) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let parsed = if continuous {
-                    parse_recording_folder(&name)
-                } else {
-                    parse_clip_folder(&name)
-                };
-                let Some((reciter, surah)) = parsed else {
-                    continue;
-                };
-                let path = entry.path();
-                let marker = if continuous {
-                    "receipt.json"
-                } else {
-                    "surah.json"
-                };
-                if plain_directory(&path) && path.join(marker).is_file() {
-                    found.push(DownloadedSurah {
-                        reciter,
-                        surah,
-                        bytes: folder_bytes(&path),
-                        continuous,
-                        complete: download_complete(&path, continuous),
-                    });
-                }
-            }
-        }
-        found.sort_by_key(|d| (d.surah, d.reciter, d.continuous));
-        found
+    pub fn profile_root(&self) -> PathBuf {
+        self.profile_root.clone()
     }
 
     /// Remove one saved surah. Only plain files directly inside its exactly
@@ -737,31 +698,114 @@ impl Drop for AudioBridge {
     }
 }
 
-/// Whether a saved surah's record and the files it names are all there.
-fn download_complete(folder: &Path, continuous: bool) -> bool {
-    let present = |name: &str| {
-        !name.is_empty()
-            && !name.contains(['/', '\\'])
-            && fs::metadata(folder.join(name)).is_ok_and(|m| m.is_file() && m.len() > 0)
+/// Surahs saved for offline listening, read from the native stores' own folder
+/// names; partial or unknown folders are ignored. Only reads folders and small
+/// records, so it can run on a background thread.
+pub fn scan_downloads(profile_root: &Path) -> Vec<DownloadedSurah> {
+    let store = profile_root.join("AudioStore");
+    let mut found = Vec::new();
+    for (folder, continuous) in [
+        (store.join("Downloads"), false),
+        (store.join("Continuous"), true),
+    ] {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let parsed = if continuous {
+                parse_recording_folder(&name)
+            } else {
+                parse_clip_folder(&name)
+            };
+            let Some((reciter, surah)) = parsed else {
+                continue;
+            };
+            let path = entry.path();
+            let marker = if continuous {
+                "receipt.json"
+            } else {
+                "surah.json"
+            };
+            if plain_directory(&path) && path.join(marker).is_file() {
+                found.push(DownloadedSurah {
+                    reciter,
+                    surah,
+                    bytes: folder_bytes(&path),
+                    continuous,
+                    complete: download_complete(&path, continuous, reciter, surah),
+                });
+            }
+        }
+    }
+    found.sort_by_key(|d| (d.surah, d.reciter, d.continuous));
+    found
+}
+
+/// Read a small record, refusing anything larger than `limit` without reading it all.
+fn read_small(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= limit).then_some(bytes)
+}
+
+/// Whether a saved surah's record belongs to this folder and every file it
+/// names is present with the expected size. Playback still verifies each
+/// file's hash; this only keeps the list honest, without hashing on the UI.
+fn download_complete(folder: &Path, continuous: bool, reciter: usize, surah: u32) -> bool {
+    let size_of = |name: &str| -> Option<u64> {
+        if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
+            return None;
+        }
+        fs::metadata(folder.join(name))
+            .ok()
+            .filter(|m| m.is_file() && m.len() > 0)
+            .map(|m| m.len())
     };
     let record = |name: &str| -> Option<serde_json::Value> {
-        let bytes = fs::read(folder.join(name)).ok()?;
-        (bytes.len() <= 256 * 1024).then_some(())?;
-        serde_json::from_slice(&bytes).ok()
+        serde_json::from_slice(&read_small(&folder.join(name), 256 * 1024)?).ok()
     };
     if continuous {
-        record("receipt.json").is_some() && present("audio.mp3") && present("timings.json")
+        let Some(receipt) = record("receipt.json") else {
+            return false;
+        };
+        let read = Recording::for_reciter(reciter).map(|recording| u64::from(recording.read));
+        receipt.get("read").and_then(|v| v.as_u64()) == read
+            && read.is_some()
+            && receipt.get("surah").and_then(|v| v.as_u64()) == Some(u64::from(surah))
+            && receipt
+                .get("bytes")
+                .and_then(|v| v.as_u64())
+                .is_some_and(|bytes| size_of("audio.mp3") == Some(bytes))
+            && size_of("timings.json").is_some()
     } else {
-        record("surah.json")
-            .and_then(|manifest| manifest.get("clips")?.as_array().cloned())
-            .is_some_and(|clips| {
-                !clips.is_empty()
-                    && clips.iter().all(|clip| {
-                        clip.get("file")
-                            .and_then(|f| f.as_str())
-                            .is_some_and(present)
-                    })
-            })
+        let Some(manifest) = record("surah.json") else {
+            return false;
+        };
+        let verses = surah
+            .checked_sub(1)
+            .and_then(|index| COUNTS.get(index as usize))
+            .copied()
+            .unwrap_or(u32::MAX) as usize;
+        manifest.get("schema").and_then(|v| v.as_str()) == Some("native-audio-surah-v1")
+            && manifest.get("reciter").and_then(|v| v.as_u64()) == Some(reciter as u64)
+            && manifest.get("surah").and_then(|v| v.as_u64()) == Some(u64::from(surah))
+            && manifest
+                .get("clips")
+                .and_then(|v| v.as_array())
+                .is_some_and(|clips| {
+                    clips.len() >= verses
+                        && clips.iter().all(|clip| {
+                            let file = clip.get("file").and_then(|f| f.as_str()).unwrap_or("");
+                            let bytes = clip.get("bytes").and_then(|b| b.as_u64());
+                            size_of(file).is_some_and(|size| bytes.is_none_or(|b| b == size))
+                        })
+                })
     }
 }
 
@@ -853,6 +897,40 @@ fn clock_fields(transport: Option<Transport>, arabic: bool) -> (u64, u64, u64, u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_completeness_checks_identity_and_files() {
+        let root = std::env::temp_dir().join(format!("qr-download-check-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let clips = root.join("clips");
+        fs::create_dir_all(&clips).unwrap();
+        // Al-Kafirun has six verses.
+        let names: Vec<String> = (1..=6).map(|i| format!("{i}.mp3")).collect();
+        for name in &names {
+            fs::write(clips.join(name), b"abc").unwrap();
+        }
+        let entries: Vec<_> = names
+            .iter()
+            .map(|n| serde_json::json!({"file": n, "bytes": 3}))
+            .collect();
+        let manifest = |reciter: u64, surah: u64, clips: &[serde_json::Value]| {
+            serde_json::to_vec(&serde_json::json!({"schema":"native-audio-surah-v1","reciter":reciter,"surah":surah,"clips":clips})).unwrap()
+        };
+        fs::write(clips.join("surah.json"), manifest(3, 109, &entries)).unwrap();
+        assert!(download_complete(&clips, false, 3, 109));
+        // Another reciter's or surah's record, too few clips, or a missing file.
+        assert!(!download_complete(&clips, false, 4, 109));
+        assert!(!download_complete(&clips, false, 3, 110));
+        fs::write(clips.join("surah.json"), manifest(3, 109, &entries[..5])).unwrap();
+        assert!(!download_complete(&clips, false, 3, 109));
+        fs::write(clips.join("surah.json"), manifest(3, 109, &entries)).unwrap();
+        fs::remove_file(clips.join("6.mp3")).unwrap();
+        assert!(!download_complete(&clips, false, 3, 109));
+        // An oversized record is refused without being read whole.
+        fs::write(clips.join("surah.json"), vec![b' '; 300 * 1024]).unwrap();
+        assert!(!download_complete(&clips, false, 3, 109));
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn play_range_uses_native_chapter_boundaries() {
