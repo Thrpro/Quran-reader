@@ -72,7 +72,10 @@ mod reader;
 mod render;
 mod shortcuts;
 mod turn_queue;
-pub(crate) use reader::bundled_only as tafsir_library;
+// Complete tafsir books downloaded from Quran.com into the profile.
+#[allow(dead_code)]
+#[path = "../../../windows/QuranMushaf.Native/src/tafsir_library.rs"]
+mod tafsir_library;
 
 use reader::{Engine, Rendered, SearchResult};
 use serde_json::{Value, json};
@@ -271,7 +274,11 @@ impl Drop for Worker {
         }
     }
 }
-fn start_worker(root: PathBuf, ui: slint::Weak<ReaderWindow>) -> (Worker, mpsc::Receiver<Output>) {
+fn start_worker(
+    root: PathBuf,
+    ui: slint::Weak<ReaderWindow>,
+    library: Option<Arc<tafsir_library::Library>>,
+) -> (Worker, mpsc::Receiver<Output>) {
     let queue = Arc::new(Queue::default());
     let work = queue.clone();
     // One waiting output and one coalesced render request bound retained pixels.
@@ -316,6 +323,11 @@ fn start_worker(root: PathBuf, ui: slint::Weak<ReaderWindow>) -> (Worker, mpsc::
                 return;
             }
         };
+        // Downloaded tafsir books are read here, from the same library the
+        // Download manager updates.
+        if let Some(library) = library {
+            engine.set_study_library(library);
+        }
         let mut native_generation = 0;
         let mut prepared = page_cache::Cache::<View, reader::Prepared>::default();
         let mut previous: Option<(View, page_animation::Surface)> = None;
@@ -608,7 +620,7 @@ fn request_render_with_intent(
             show_clock: ui.get_show_clock(),
             clock_24: ui.get_clock_24(),
             single_page: ui.get_single_page(),
-            study_source: ui.get_study_source().clamp(0, 2) as u32,
+            study_source: ui.get_study_source().clamp(0, 9) as u32,
             recitation: state.recitation,
             opening: state.opening,
         },
@@ -1100,6 +1112,11 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 .into(),
             );
             show_current_surah(ui, state);
+            // A page drew: an earlier drawing failure no longer applies.
+            if ui.get_error_retry() {
+                ui.set_error_text("".into());
+                ui.set_error_retry(false);
+            }
             let (right, left) = data::spread(output.page);
             ui.set_label(
                 if r.single_page && ui.get_arabic() {
@@ -1137,9 +1154,23 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
             drop(s);
             ui.set_render_busy(false);
             ui.set_render_status(format!("Reader prototype: {error}").into());
+            show_error(
+                ui,
+                "This page couldn't be drawn.",
+                "تعذّر عرض هذه الصفحة.",
+                &error,
+                true,
+            );
         }
         Output::Fatal(error) => {
             ui.set_render_busy(false);
+            show_error(
+                ui,
+                "Page drawing stopped. Close the app and open it again.",
+                "توقّف عرض الصفحات. أغلق التطبيق ثم افتحه مجددًا.",
+                &error,
+                false,
+            );
             ui.set_render_status(format!("Reader prototype: {error}").into());
         }
         Output::Search(id, result) => {
@@ -1222,7 +1253,16 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                     }
                 },
                 Ok(None) => {}
-                Err(error) => ui.set_render_status(error.into()),
+                Err(error) => {
+                    ui.set_render_status(error.clone().into());
+                    show_error(
+                        ui,
+                        "That ayah couldn't be opened.",
+                        "تعذّر فتح هذه الآية.",
+                        &error,
+                        false,
+                    );
+                }
             }
         }
         Output::Hover(id, sequence, rectangles) => {
@@ -1291,10 +1331,82 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                     }
                     set_page(ui, state, queue, verse.page, selection);
                 }
-                Err(error) => ui.set_render_status(error.into()),
+                Err(error) => {
+                    ui.set_render_status(error.clone().into());
+                    show_error(
+                        ui,
+                        "That ayah couldn't be opened.",
+                        "تعذّر فتح هذه الآية.",
+                        &error,
+                        false,
+                    );
+                }
             }
         }
     }
+}
+
+/// A problem the reader should see: a short message in the interface language,
+/// the technical detail beneath it, and whether trying again could help.
+pub(crate) fn show_error(
+    ui: &ReaderWindow,
+    english: &str,
+    arabic: &str,
+    detail: &str,
+    retry: bool,
+) {
+    ui.set_error_text(if ui.get_arabic() { arabic } else { english }.into());
+    ui.set_error_detail(detail.chars().take(300).collect::<String>().into());
+    ui.set_error_retry(retry);
+}
+
+/// The study text as styled text: Quran words quoted in {braces} in the theme's
+/// green, everything else as written. Markdown punctuation is escaped, so the
+/// text is never read as formatting, and line breaks are kept.
+fn study_markdown(body: &str, quran: &str) -> String {
+    let mut out = String::with_capacity(body.len() + 64);
+    let mut depth = 0usize;
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            out.push_str("  \n");
+        }
+        // A colour run never spans lines; it is reopened on the next one.
+        if depth > 0 {
+            out.push_str(&format!("<font color=\"{quran}\">"));
+        }
+        for c in line.chars() {
+            if c == '{' {
+                if depth == 0 {
+                    out.push_str(&format!("<font color=\"{quran}\">"));
+                }
+                depth += 1;
+            }
+            if c.is_ascii_punctuation() {
+                out.push('\\');
+            }
+            out.push(c);
+            if c == '}' && depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    out.push_str("</font>");
+                }
+            }
+        }
+        if depth > 0 {
+            out.push_str("</font>");
+        }
+    }
+    out
+}
+
+fn restyle_study(ui: &ReaderWindow) {
+    let body = ui.get_study_body();
+    // The accent green of each theme (UiColors.accent).
+    let quran = ["#9bc9ac", "#2c7150", "#2c7150", "#73c7a4", "#72c7bd"]
+        [ui.get_theme().clamp(0, 4) as usize];
+    let styled = slint::StyledText::from_markdown(&study_markdown(&body, quran))
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(body.as_str()));
+    ui.set_study_styled(styled);
 }
 
 /// The surah being read, marked in the search list: the surah of the last
@@ -2875,7 +2987,8 @@ fn run() -> Result<()> {
         Some(Some("software")) => true,
         Some(Some("gpu")) => false,
         Some(_) => return Err("--renderer must be gpu or software".into()),
-        None => false,
+        // A choice saved by an earlier version stays until it is turned off.
+        None => preferences::saved_software_rendering(&profile_directory),
     };
     // For comparing turn speeds without a rebuild, e.g. `--turn-ms 285`.
     if let Some(i) = args.iter().position(|arg| arg == "--turn-ms") {
@@ -2919,7 +3032,11 @@ fn run() -> Result<()> {
         qa_output.is_some() || player_output.is_some(),
     )?);
     ui.set_pointer_hover_enabled(qa_output.is_none());
-    let (worker, rx) = start_worker(resource_directory, ui.as_weak());
+    let (worker, rx) = start_worker(
+        resource_directory,
+        ui.as_weak(),
+        controller.tafsir_library(),
+    );
     let state = Rc::new(RefCell::new(State {
         prefetched_pages: Vec::new(),
         prefetch_bytes: 0,
@@ -3276,6 +3393,27 @@ fn run() -> Result<()> {
         let state = state.clone();
         let queue = queue.clone();
         let weak = ui.as_weak();
+        {
+            let state = state.clone();
+            let queue = queue.clone();
+            let weak = weak.clone();
+            ui.on_error_retry_requested(move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_error_text("".into());
+                    ui.set_error_retry(false);
+                    state.borrow_mut().requested = None;
+                    request_render(&ui, &state, &queue);
+                }
+            });
+        }
+        {
+            let weak = weak.clone();
+            ui.on_study_restyle(move || {
+                if let Some(ui) = weak.upgrade() {
+                    restyle_study(&ui);
+                }
+            });
+        }
         {
             // Section pickers and page ends are read once, early.
             queue.push(Task::Sections);
@@ -3720,15 +3858,66 @@ fn run() -> Result<()> {
     }
     Ok(())
 }
+/// A startup failure: release builds have no console, so show it in a dialog
+/// and keep the latest one in a small log beside the profile.
+fn startup_failed(error: &str) -> ! {
+    eprintln!("Reading prototype failed: {error}");
+    let text: String = error.chars().take(4000).collect();
+    if let Ok(directory) = preferences::default_profile_directory()
+        && std::fs::create_dir_all(&directory).is_ok()
+    {
+        let _ = std::fs::write(
+            directory.join("startup-error.log"),
+            format!(
+                "Quran Mushaf Reader {}\n{text}\n",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+    }
+    use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+    let message = windows::core::HSTRING::from(format!(
+        "Quran Mushaf Reader could not start.\n\n{text}\n\nThe details are saved in SlintProfile\\startup-error.log next to the app.\n\nتعذّر تشغيل قارئ المصحف. التفاصيل محفوظة في الملف المذكور أعلاه."
+    ));
+    // SAFETY: a modal message box with owned, null-terminated strings and no owner window.
+    unsafe {
+        MessageBoxW(
+            None,
+            &message,
+            windows::core::w!("Quran Mushaf Reader"),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+    std::process::exit(1);
+}
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
     if let Err(error) = gpu_choice::apply(&args) {
-        eprintln!("Reading prototype failed: {error}");
-        std::process::exit(1);
+        startup_failed(&error.to_string());
     }
     if let Err(error) = run() {
-        eprintln!("Reading prototype failed: {error}");
-        std::process::exit(1);
+        startup_failed(&error.to_string());
+    }
+}
+
+#[cfg(test)]
+mod study_text_tests {
+    use super::study_markdown;
+
+    #[test]
+    fn quran_quotes_are_coloured_and_punctuation_is_literal() {
+        let text = study_markdown("قال: {الحمد لله} *1. a_b\n{x\ny}", "#2c7150");
+        assert!(text.contains("<font color=\"#2c7150\">\\{الحمد لله\\}</font>"));
+        assert!(text.contains("\\*1\\. a\\_b"));
+        // A quote across a line break is closed and reopened, never left open.
+        assert_eq!(
+            text.matches("<font").count(),
+            text.matches("</font>").count()
+        );
+        let parsed = slint::StyledText::from_markdown(&text);
+        assert!(parsed.is_ok());
+        assert!(
+            slint::StyledText::from_markdown(&study_markdown("[a](b) <u> # x", "#000000")).is_ok()
+        );
     }
 }
 

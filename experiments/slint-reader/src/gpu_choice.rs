@@ -39,13 +39,32 @@ fn windows_setting_for_this_app() -> bool {
         return false;
     };
     let name = HSTRING::from(exe.as_os_str());
-    let mut buffer = [0u16; 64];
+    let key = w!("Software\\Microsoft\\DirectX\\UserGpuPreferences");
+    // Ask for the size first: Windows stores several settings in this value
+    // (for example SwapEffectUpgradeEnable and AutoHDREnable), so it can be long.
+    let mut size = 0u32;
+    // SAFETY: a size query with no output buffer.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            &name,
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    if status.is_err() || size == 0 || size > 64 * 1024 {
+        return false;
+    }
+    let mut buffer = vec![0u16; (size as usize).div_ceil(2)];
     let mut size = (buffer.len() * 2) as u32;
     // SAFETY: the buffer and its byte size describe valid writable memory.
     let status = unsafe {
         RegGetValueW(
             HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\DirectX\\UserGpuPreferences"),
+            key,
             &name,
             RRF_RT_REG_SZ,
             None,
@@ -57,7 +76,24 @@ fn windows_setting_for_this_app() -> bool {
         return false;
     }
     let value = String::from_utf16_lossy(&buffer[..(size as usize / 2).min(buffer.len())]);
-    value.contains("GpuPreference=1") || value.contains("GpuPreference=2")
+    chooses_gpu(&value)
+}
+
+/// Whether a Windows graphics setting names a GPU for this app.
+fn chooses_gpu(value: &str) -> bool {
+    value
+        .split(';')
+        .any(|part| matches!(part.trim(), "GpuPreference=1" | "GpuPreference=2"))
+}
+
+#[cfg(test)]
+#[test]
+fn long_graphics_settings_still_name_the_gpu() {
+    assert!(chooses_gpu(
+        "SwapEffectUpgradeEnable=1;VRROptimizeEnable=0;AutoHDREnable=2097;GpuPreference=2;"
+    ));
+    assert!(!chooses_gpu("SwapEffectUpgradeEnable=1;GpuPreference=0;"));
+    assert!(!chooses_gpu("GpuPreference=12;"));
 }
 
 fn adapter_name(adapter: &IDXGIAdapter1) -> Option<String> {

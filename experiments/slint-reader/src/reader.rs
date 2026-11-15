@@ -13,27 +13,9 @@ use windows::Win32::{
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize},
 };
 
-const MAX_PIXEL_BYTES: usize = 32 * 1024 * 1024;
-
-/// Fail closed for optional downloads while reusing the native data module.
-/// The prototype only opens its three original bundled study resources.
-pub(crate) mod bundled_only {
-    pub struct Source {
-        pub id: &'static str,
-    }
-    pub const SOURCES: [Source; 0] = [];
-    pub struct Library;
-    impl Library {
-        pub fn read_ayah(
-            &self,
-            _source: usize,
-            _surah: u32,
-            _ayah: u32,
-        ) -> crate::data::Result<Option<String>> {
-            Err("Optional study downloads are unavailable in this prototype".into())
-        }
-    }
-}
+// Enough for 5K (5120x2880) and 7680x2160 screens; the native renderer still
+// checks the device's own bitmap limit before creating one.
+const MAX_PIXEL_BYTES: usize = 64 * 1024 * 1024;
 
 struct Apartment;
 impl Drop for Apartment {
@@ -574,12 +556,33 @@ impl Engine {
         ])
     }
 
+    /// Downloaded tafsir books are read through this library.
+    pub fn set_study_library(&mut self, library: std::sync::Arc<crate::tafsir_library::Library>) {
+        self.resources.set_study_library(library);
+    }
+
     pub fn study_source(&self, key: (u32, u32), source: u32) -> Result<String> {
         let name = match source {
             0 => "mukhtasar",
             1 => "saadi",
             2 => "sahih",
-            _ => return Err("Unknown bundled study source".into()),
+            // A downloaded book: source 3 is the library's first.
+            n => {
+                let book = crate::tafsir_library::SOURCES
+                    .get((n as usize).wrapping_sub(3))
+                    .ok_or("Unknown study source")?;
+                let text = self.resources.study(book.id, key.0, key.1)?;
+                return Ok(if text.trim().is_empty() {
+                    if book.arabic {
+                        "هذا التفسير غير محفوظ على هذا الجهاز. نزّله من إدارة التنزيلات، أو اختر مصدرًا آخر."
+                    } else {
+                        "This tafsir is not on this PC. Download it from the Download manager, or choose another source."
+                    }
+                    .to_string()
+                } else {
+                    text
+                });
+            }
         };
         let text = self.resources.study(name, key.0, key.1)?;
         Ok(if source == 2 {
@@ -835,7 +838,7 @@ fn pixel_byte_count(width: u32, height: u32) -> Result<usize> {
         .checked_mul(u64::from(height))
         .and_then(|pixels| pixels.checked_mul(4))
         .filter(|bytes| *bytes > 0 && *bytes <= MAX_PIXEL_BYTES as u64)
-        .ok_or("Native book pixels exceed the 32 MiB transfer limit")?;
+        .ok_or("Native book pixels exceed the 64 MiB transfer limit")?;
     Ok(usize::try_from(bytes)?)
 }
 
@@ -886,9 +889,9 @@ mod tests {
     fn transfer_bounds_reject_empty_and_excessive_buffers() {
         assert!(pixel_byte_count(0, 600).is_err());
         assert!(pixel_byte_count(u32::MAX, u32::MAX).is_err());
-        assert!(pixel_byte_count(4096, 4096).is_err());
-        assert_eq!(pixel_byte_count(4096, 2048).unwrap(), MAX_PIXEL_BYTES);
-        assert!(pixel_byte_count(4096, 2049).is_err());
+        assert_eq!(pixel_byte_count(4096, 4096).unwrap(), MAX_PIXEL_BYTES);
+        assert!(pixel_byte_count(5120, 2880).is_ok() && pixel_byte_count(7680, 2160).is_ok());
+        assert!(pixel_byte_count(4096, 4097).is_err());
         assert_eq!(pixel_byte_count(1024, 768).unwrap(), 3_145_728);
         assert!(opaque_bgr_to_rgba(&mut []).is_err());
         assert!(opaque_bgr_to_rgba(&mut [0, 1, 2]).is_err());

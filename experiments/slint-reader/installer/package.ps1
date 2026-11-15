@@ -7,7 +7,7 @@ pinned by its SHA-256, and are checked again against the resource manifest,
 whose own SHA-256 is pinned too. Nothing in Resources is modified.
 
 Used by .github/workflows/native-reader.yml and runnable locally:
-  ./package.ps1 -Exe <built exe> -Version 0.17.0 -OutDir <folder>
+  ./package.ps1 -Exe <built exe> -Version 0.18.0 -OutDir <folder>
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,

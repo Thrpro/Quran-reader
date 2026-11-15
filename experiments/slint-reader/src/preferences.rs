@@ -30,6 +30,10 @@ use windows::{
 };
 
 const STATE_FILE: &str = "slint-reader-state-v1.json";
+/// The previous saved settings, kept on every save for recovery.
+const BACKUP_FILE: &str = "slint-reader-state-v1.backup.json";
+/// Where damaged settings are kept, untouched, when the backup is used instead.
+const UNREADABLE_PREFIX: &str = "slint-reader-state-v1.unreadable";
 const SCHEMA: &str = "quran-mushaf-slint-profile-v1";
 const MAX_STATE_BYTES: usize = 64 * 1024;
 pub const MAX_BOOKMARKS: usize = 128;
@@ -47,8 +51,10 @@ impl Bookmark {
     }
 }
 
+// Unknown fields are kept rather than rejected: a newer version's settings
+// load in this one, and this one writes them back unchanged.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
     pub arabic: bool,
     #[serde(default = "legacy_onboarding_complete")]
@@ -82,6 +88,9 @@ pub struct Preferences {
     pub software_rendering: bool,
     /// Changed keyboard shortcuts by action name; see shortcuts.rs.
     pub shortcuts: std::collections::BTreeMap<String, String>,
+    /// Settings this version does not know, kept for the version that wrote them.
+    #[serde(flatten)]
+    pub newer: serde_json::Map<String, serde_json::Value>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -109,6 +118,7 @@ impl Default for Preferences {
             bookmarks: Vec::new(),
             software_rendering: false,
             shortcuts: std::collections::BTreeMap::new(),
+            newer: serde_json::Map::new(),
         }
     }
 }
@@ -124,9 +134,11 @@ impl Preferences {
         if self.theme > 4 {
             self.theme = 0;
         }
-        if self.arabic && self.study_source > 1 {
+        // Arabic: the two included tafsirs or a downloaded Arabic book (3 to 6);
+        // English: the included translation or a downloaded English book (7 to 9).
+        if self.arabic && !matches!(self.study_source, 0 | 1 | 3..=6) {
             self.study_source = 0;
-        } else if !self.arabic {
+        } else if !self.arabic && !matches!(self.study_source, 2 | 7..=9) {
             self.study_source = 2;
         }
         self.study_text_size = self.study_text_size.clamp(14, 26);
@@ -163,8 +175,22 @@ impl Preferences {
     }
 }
 
+/// Read before the window and profile owner exist, so nothing is written or
+/// locked. Any problem with the file leaves the default for `Profile::load` to report.
+pub fn saved_software_rendering(directory: &Path) -> bool {
+    let path = directory.join(STATE_FILE);
+    if fs::metadata(&path).map_or(true, |file| file.len() > 64 * 1024) {
+        return false;
+    }
+    fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Envelope>(&bytes).ok())
+        .is_some_and(|envelope| {
+            envelope.schema == SCHEMA && envelope.preferences.software_rendering
+        })
+}
+
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Envelope {
     schema: String,
     preferences: Preferences,
@@ -224,7 +250,17 @@ pub struct Profile {
     preferences: Preferences,
     directory: PinnedDirectory,
     saved: Option<Saved>,
+    /// Set when damaged settings were replaced by the backup: where they were kept.
+    recovered: Option<PathBuf>,
     _owner: ProfileOwner,
+}
+
+fn parse_envelope(bytes: &[u8]) -> Result<Preferences> {
+    let envelope: Envelope = serde_json::from_slice(bytes)?;
+    if envelope.schema != SCHEMA {
+        return Err("This is not a supported Slint-preview profile".into());
+    }
+    Ok(envelope.preferences)
 }
 
 /// Portable namespace, separate from the native application's profile.
@@ -241,14 +277,23 @@ impl Profile {
         let directory = create_and_pin_directory(directory)?;
         let owner = ProfileOwner::acquire(&directory)?;
         let saved = read_saved(&directory.path().join(STATE_FILE))?;
+        let mut recovered = None;
         let mut preferences = match &saved {
-            Some(saved) => {
-                let envelope: Envelope = serde_json::from_slice(&saved.bytes)?;
-                if envelope.schema != SCHEMA {
-                    return Err("This is not a supported Slint-preview profile".into());
+            Some(saved) => match parse_envelope(&saved.bytes) {
+                Ok(preferences) => preferences,
+                // Damaged settings: use the backup from the last good save, after
+                // keeping the damaged file under another name. Without a usable
+                // backup nothing changes and the error is reported as before.
+                Err(error) => {
+                    let backup = read_saved(&directory.path().join(BACKUP_FILE))
+                        .ok()
+                        .flatten()
+                        .and_then(|backup| parse_envelope(&backup.bytes).ok())
+                        .ok_or(error)?;
+                    recovered = Some(keep_unreadable(directory.path(), &saved.bytes)?);
+                    backup
                 }
-                envelope.preferences
-            }
+            },
             None => Preferences::default(),
         };
         preferences.sanitize(surahs);
@@ -256,11 +301,16 @@ impl Profile {
             preferences,
             directory,
             saved,
+            recovered,
             _owner: owner,
         })
     }
     pub fn preferences(&self) -> &Preferences {
         &self.preferences
+    }
+    /// Where damaged settings were kept, if the backup was used at load.
+    pub fn recovered(&self) -> Option<&Path> {
+        self.recovered.as_deref()
     }
     pub fn directory(&self) -> &Path {
         self.directory.path()
@@ -325,6 +375,16 @@ impl Profile {
         if bytes.len() > MAX_STATE_BYTES {
             return Err("Preview preferences exceed their 64 KiB limit".into());
         }
+        // Keep the last good settings before replacing them. A backup failure
+        // does not block saving; the main file stays the source of truth.
+        if let Some(current) = &current
+            && parse_envelope(&current.bytes).is_ok()
+        {
+            let _ = profile_file::write_atomic(
+                &self.directory.path().join(BACKUP_FILE),
+                &current.bytes,
+            );
+        }
         profile_file::write_atomic(&path, &bytes)?;
         let published = read_saved(&path)?.ok_or("Published preview profile disappeared")?;
         if published.bytes != bytes {
@@ -333,6 +393,22 @@ impl Profile {
         self.saved = Some(published);
         Ok(())
     }
+}
+
+/// Keep damaged settings under a new name that nothing else writes, never
+/// replacing an earlier kept copy.
+fn keep_unreadable(directory: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    for n in 1..=20 {
+        let path = directory.join(format!("{UNREADABLE_PREFIX}-{n}.json"));
+        if fs::symlink_metadata(&path).is_err() {
+            profile_file::write_atomic(&path, bytes)?;
+            if fs::read(&path)? == bytes {
+                return Ok(path);
+            }
+            return Err("The damaged settings file could not be kept".into());
+        }
+    }
+    Err("Too many damaged settings files are kept already".into())
 }
 
 fn read_saved(path: &Path) -> Result<Option<Saved>> {
@@ -595,7 +671,83 @@ mod tests {
         drop(profile);
         fs::remove_file(root.join(STATE_FILE)).unwrap();
         fs::remove_file(root.join("authored.txt")).unwrap();
+        let _ = fs::remove_file(root.join(BACKUP_FILE));
         fs::remove_dir(root).unwrap();
+    }
+    #[test]
+    fn downloaded_tafsir_choices_are_kept_for_their_language_only() {
+        let mut prefs = Preferences {
+            arabic: true,
+            study_source: 4,
+            ..Preferences::default()
+        };
+        prefs.sanitize(&surahs());
+        assert_eq!(prefs.study_source, 4);
+        prefs.study_source = 8;
+        prefs.sanitize(&surahs());
+        assert_eq!(prefs.study_source, 0);
+        prefs.arabic = false;
+        prefs.study_source = 8;
+        prefs.sanitize(&surahs());
+        assert_eq!(prefs.study_source, 8);
+        prefs.study_source = 1;
+        prefs.sanitize(&surahs());
+        assert_eq!(prefs.study_source, 2);
+    }
+    #[test]
+    fn older_and_newer_profiles_load_and_newer_fields_survive_a_save() {
+        let root = folder();
+        let path = root.join(STATE_FILE);
+        // An older profile without recent fields gets their defaults.
+        fs::write(
+            &path,
+            br#"{"schema":"quran-mushaf-slint-profile-v1","preferences":{"arabic":false,"theme":1}}"#,
+        )
+        .unwrap();
+        let mut profile = Profile::load(&root, &surahs()).unwrap();
+        assert!(!profile.preferences().arabic);
+        assert_eq!(profile.preferences().theme, 1);
+        assert!(profile.preferences().shortcuts.is_empty());
+        drop(profile);
+        // A newer profile with settings this version does not know still loads,
+        // and saving here writes those settings back unchanged.
+        fs::write(
+            &path,
+            br#"{"schema":"quran-mushaf-slint-profile-v1","preferences":{"arabic":true,"futureSetting":{"a":1}}}"#,
+        )
+        .unwrap();
+        profile = Profile::load(&root, &surahs()).unwrap();
+        let mut next = profile.preferences().clone();
+        next.theme = 2;
+        profile.replace(next, &surahs()).unwrap();
+        let written: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(written["preferences"]["futureSetting"]["a"], 1);
+        assert_eq!(written["preferences"]["theme"], 2);
+        drop(profile);
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn damaged_settings_recover_from_the_backup_and_are_kept() {
+        let root = folder();
+        let path = root.join(STATE_FILE);
+        let mut profile = Profile::load(&root, &surahs()).unwrap();
+        let mut first = profile.preferences().clone();
+        first.theme = 1;
+        profile.replace(first, &surahs()).unwrap();
+        let mut second = profile.preferences().clone();
+        second.theme = 2;
+        profile.replace(second, &surahs()).unwrap();
+        drop(profile);
+        // The backup holds the save before the last one.
+        assert!(root.join(BACKUP_FILE).exists());
+        let damaged = b"{damaged".to_vec();
+        fs::write(&path, &damaged).unwrap();
+        let profile = Profile::load(&root, &surahs()).unwrap();
+        assert_eq!(profile.preferences().theme, 1);
+        let kept = profile.recovered().unwrap().to_path_buf();
+        assert_eq!(fs::read(&kept).unwrap(), damaged);
+        drop(profile);
+        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn bad_json_oversize_and_unknown_schema_are_never_overwritten() {
@@ -673,10 +825,13 @@ mod tests {
         assert!(profile.replace(next, &surahs()).is_err());
         assert_eq!(profile.preferences().current_page, 1);
         assert_eq!(fs::read(&path).unwrap(), original);
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        // Only the settings and the backup of the last good save remain.
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        assert_eq!(fs::read(root.join(BACKUP_FILE)).unwrap(), original);
         drop(reader);
         drop(profile);
         fs::remove_file(path).unwrap();
+        fs::remove_file(root.join(BACKUP_FILE)).unwrap();
         fs::remove_dir(root).unwrap();
     }
     #[test]

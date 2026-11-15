@@ -3,6 +3,8 @@ import { LineEdit, Palette, ScrollView } from "std-widgets.slint";
 export struct SearchEntry { title: string, detail: string, badge: string, secondary: string }
 export struct SectionChoices { juz: [string], hizb: [string], rub: [string] }
 export struct BookmarkEntry { title: string, detail: string }
+// A tafsir book that can be downloaded: its row in the Download manager.
+export struct TafsirRow { source: int, title: string, detail: string, action: string, installed: bool, enabled: bool }
 export struct FoldGeometry { plane_x: float, plane_y: float, plane_angle: float, back_x: float, back_y: float, back_angle: float }
 export struct HoverRect { x: float, y: float, w: float, h: float }
 export struct HoverPatch { x: float, y: float, w: float, h: float, image: image }
@@ -28,7 +30,7 @@ global UiColors {
  out property <color> muted: polarity-change ? readable-ink : pick(theme, #aaaaaa, #657267, #657267, #a8abb1, #aab8c7).mix(pick(old-theme, #aaaaaa, #657267, #657267, #a8abb1, #aab8c7), phase);
  out property <color> edge: pick(theme, #424242, #d5ddd3, #d8c9ad, #2b2e33, #2a4564).mix(pick(old-theme, #424242, #d5ddd3, #d8c9ad, #2b2e33, #2a4564), phase);
  out property <color> accent: pick(theme, #9bc9ac, #2c7150, #2c7150, #73c7a4, #72c7bd).mix(pick(old-theme, #9bc9ac, #2c7150, #2c7150, #73c7a4, #72c7bd), phase);
- out property <color> accent-ink: polarity-change ? (accent-level >= 118 ? #000000 : #ffffff) : pick(theme, #14261b, #ffffff, #ffffff, #03140d, #052220).mix(pick(old-theme, #14261b, #ffffff, #ffffff, #03140d, #052220), phase);
+ out property <color> accent-ink: polarity-change ? (accent-level >= 118 ? #000000 : #ffffff) : pick(theme, #06120b, #ffffff, #ffffff, #020b07, #021514).mix(pick(old-theme, #06120b, #ffffff, #ffffff, #020b07, #021514), phase);
  out property <color> selected: pick(theme, #344c3e, #e8f0e5, #eadfbb, #14261c, #173352).mix(pick(old-theme, #344c3e, #e8f0e5, #eadfbb, #14261c, #173352), phase);
 }
 component Action inherits Rectangle {
@@ -54,7 +56,7 @@ component Action inherits Rectangle {
  accessible-action-default => { if root.enabled { root.clicked(); } }
  forward-focus: keys;
  private property <length> pad: root.width < 52px ? 4px : 10px;
- button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : root.pad; width: max(0px, parent.width - (root.leading-icon > 0 ? 40px : 2 * root.pad)); height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.subtle ? 12px : 13px; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : root.pad; width: max(0px, parent.width - (root.leading-icon > 0 ? 40px : 2 * root.pad)); height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.subtle ? 12px : 13px; font-weight: root.primary ? 600 : 400; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
  if root.leading-icon > 0 : Path { x: root.rtl ? parent.width - 25px : 8px; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 16px; height: self.width; commands: root.leading-icon == 8 ? "M 6 0 C 2.7 0 0 2.7 0 6 C 0 9.3 2.7 12 6 12 C 9.3 12 12 9.3 12 6 C 12 2.7 9.3 0 6 0 Z M 10.5 10.5 L 16 16" : root.leading-icon == 9 ? "M 1 9 C 1 4 4 1 8 1 C 12 1 15 4 15 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 11 9 L 15 9 L 15 15 L 11 15 Z" : "M 0 4 L 3 4 M 7 4 L 16 4 M 0 12 L 9 12 M 13 12 L 16 12 M 7 4 A 2 2 0 1 1 3 4 A 2 2 0 1 1 7 4 M 13 12 A 2 2 0 1 1 9 12 A 2 2 0 1 1 13 12"; stroke: root.subtle && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; stroke-width: root.subtle ? 1.2px : 1.4px; fill: transparent; }
  if root.symbol == 1 : Path { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 17px; height: self.width; commands: "M 1 7 L 1 1 L 7 1 M 11 1 L 17 1 L 17 7 M 17 11 L 17 17 L 11 17 M 7 17 L 1 17 L 1 11"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 12 : Path { x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2; width: 10px; height: 10px; commands: "M 0 0 L 10 10 M 10 0 L 0 10"; stroke: UiColors.muted; stroke-width: 1.2px; fill: transparent; }
@@ -68,6 +70,7 @@ component Action inherits Rectangle {
  if root.symbol == 2 : Path { x: (parent.width - 12px) / 2; y: (parent.height - 6px) / 2; width: 12px; height: 6px; commands: "M 0 6 L 6 0 L 12 6"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 14 : Path { x: (parent.width - 14px) / 2; y: (parent.height - 15px) / 2; width: 14px; height: 15px; commands: "M 7 0 L 7 10 M 2.5 5.5 L 7 10 L 11.5 5.5 M 0.5 14 L 13.5 14"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 15 : Path { x: (parent.width - 14px) / 2; y: (parent.height - 11px) / 2; width: 14px; height: 11px; commands: "M 0.5 6 L 5 10.5 L 13.5 0.5"; stroke: UiColors.accent; stroke-width: 1.8px; fill: transparent; }
+ if root.symbol == 16 : Path { x: (parent.width - 16px) / 2; y: (parent.height - 16px) / 2; width: 16px; height: 16px; commands: "M 8 0.75 A 7.25 7.25 0 1 1 7.99 0.75 Z M 8 7 L 8 12 M 8 4 L 8 4.6"; stroke: UiColors.muted; stroke-width: 1.4px; fill: transparent; }
  if root.symbol == 13 : Path { x: (parent.width - 12px) / 2; y: (parent.height - 6px) / 2; width: 12px; height: 6px; commands: "M 0 0 L 6 6 L 12 0"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  Tooltip { Text { text: root.hint; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } }
  keys := FocusScope { enabled: root.enabled; key-pressed(event) => { if event.text == Key.Return || event.text == " " { root.clicked(); return accept; } return reject; } }
@@ -340,13 +343,13 @@ component SettingRow inherits HorizontalLayout {
  @children
 }
 component ReadingBody inherits Rectangle {
- in property <string> body; in property <float> text-size: 20; in property <bool> rtl;
+ in property <styled-text> body; in property <float> text-size: 20; in property <bool> rtl;
  out property <bool> overflowing: flick.content-height > flick.height + 2px;
  private property <length> maximum: max(0px, flick.content-height - flick.height);
  changed body => { flick.content-y = 0px; } changed text-size => { flick.content-y = 0px; }
  clip: true;
  flick := Flickable { x: 15px; width: root.width - 15px; height: root.height; content-width: self.width; content-height: max(self.height, body-text.preferred-height + 8px); mouse-drag-pan-enabled: false;
-  body-text := Text { x: 0px; y: 0px; width: flick.width - 5px; height: self.preferred-height; text: root.body; color: UiColors.ink; font-size: root.text-size * 1px; font-weight: 400; horizontal-alignment: root.rtl ? right : left; vertical-alignment: top; wrap: word-wrap; }
+  body-text := StyledText { x: 0px; y: 0px; width: flick.width - 5px; height: self.preferred-height; text: root.body; default-color: UiColors.ink; default-font-size: root.text-size * 1px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: top; }
  }
  if root.overflowing : Rectangle {
   x: 1px; width: 5px; height: parent.height; border-radius: 2px; background: UiColors.edge.with-alpha(0.35);
@@ -357,6 +360,17 @@ component ReadingBody inherits Rectangle {
    moved => { if self.pressed { flick.content-y = (self.start-scroll - (self.mouse-y - self.start-y) * root.maximum / max(1px, root.height - max(26px, root.height * flick.height / flick.content-height))).clamp(-root.maximum, 0px); } }
   }
  }
+}
+// One sheet of the book's fore-edge: a paper ring around the book frame, wider
+// by `side` at each side and shorter by `inset` above and below, with a hairline.
+component EdgeSheet inherits Rectangle {
+ in property <float> side; in property <float> inset; in property <color> fill; in property <color> line;
+ in property <length> frame-x; in property <length> frame-y; in property <length> frame-w; in property <length> frame-h;
+ x: root.frame-x - root.side * 1px; y: root.frame-y + root.inset * 1px;
+ width: root.frame-w + root.side * 2px; height: root.frame-h - root.inset * 2px;
+ border-radius: (12 + root.side * 0.5) * 1px;
+ Rectangle { border-radius: root.border-radius; border-width: (root.side + 8) * 1px; border-color: root.fill; }
+ Rectangle { border-radius: root.border-radius; border-width: 1px; border-color: root.line; }
 }
 // A rotated clipping half-plane with an inverse-transformed content space.
 // This keeps the two native textures intact while the renderer clips the crease.
@@ -395,7 +409,16 @@ export component ReaderWindow inherits Window {
  out property <float> canvas-x: root.arabic ? 0 : root.study-space / 1px; out property <float> canvas-y: root.fullscreen ? 0 : 29;
  in property <int> page: 1; in property <string> label; in property <image> book-image;
  in property <float> image-x; in property <float> image-y; in property <float> image-w; in property <float> image-h;
- in property <string> render-status; in property <string> study-title; in property <string> study-body;
+ in property <string> render-status; in property <string> study-title; in property <string> study-body; in property <styled-text> study-styled;
+ // The tafsir sources to choose from, in order: names, their ids, and the chosen one's position.
+ in property <[string]> study-source-names; in property <[int]> study-source-ids; in-out property <int> study-source-index;
+ // Set when the tafsir books are opened from tafsir, to scroll them into view.
+ private property <bool> reveal-tafsir: false;
+ // Downloadable tafsir books, and what is happening to one.
+ in property <[TafsirRow]> tafsir-rows; in property <string> tafsir-status; in property <float> tafsir-progress: -1;
+ callback tafsir-action(int);
+ // Asks for study-styled again: the study text or the theme (its Quran colour) changed.
+ callback study-restyle();
  in property <[SearchEntry]> results;
  callback render-requested(float, float); callback navigate(int); callback go-page(string); callback search(string); callback choose-result(int) -> bool; callback pick-ayah(float, float); callback close-study(); callback worker-ready();
  in-out property <int> theme: 0;
@@ -512,7 +535,24 @@ export component ReaderWindow inherits Window {
  in property <bool> audio-finished: false;
  // The surah being recited is saved for offline listening (for its reciter).
  in property <bool> current-saved: false;
+ // The paper colour of the page raster in each theme, for the page edges.
+ out property <color> paper: UiColors.theme == 1 ? #fffdf8 : UiColors.theme == 2 ? #fbf1dd : UiColors.theme == 3 ? #000000 : UiColors.theme == 4 ? #0a1422 : #1f1f1f;
  callback download-current();
+ // A problem to show: a message in the interface language, its technical
+ // detail, and a Try again button when drawing the page failed.
+ in-out property <string> error-text; in property <string> error-detail; in-out property <bool> error-retry: false;
+ callback error-retry-requested();
+ // Software rendering chosen in an earlier version, until it is turned off.
+ in-out property <bool> software-rendering: false;
+ callback downloads-scanned();
+ in property <string> download-target; in property <string> download-estimate;
+ private property <bool> confirm-download: false;
+ private property <bool> download-info: false;
+ // Where downloads are kept, shown when what a download does is explained.
+ in property <string> download-folder;
+ private property <string> download-info-text: (root.arabic ? "يحفظ تلاوة هذه السورة على جهازك" : "Saves this surah's recitation on your PC")
+  + (root.download-estimate != "" ? " (" + root.download-estimate + ")" : "")
+  + (root.arabic ? "، فتستمع إليها لاحقًا دون اتصال بالإنترنت." : ", so you can listen to it later without internet.");
  // Where the open verse menu sits, for the tour.
  private property <float> menu-x: 0; private property <float> menu-y: 0; private property <float> menu-h: 0;
  private property <bool> listen-more: false;
@@ -532,7 +572,8 @@ export component ReaderWindow inherits Window {
  callback sections-needed(); callback go-section(int, int); callback jump-page(string) -> bool;
  in-out property <int> search-mode: 0; in property <bool> search-busy: false; in property <string> search-status; callback search-mode-changed(int);
  callback focus-reading(); focus-reading => { reader-keys.focus(); }
- callback dismiss-overlays(); dismiss-overlays => { root.context-open = false; if root.panel == "study" { root.close-study(); } root.panel = ""; reader-keys.focus(); }
+ callback dismiss-overlays(); dismiss-overlays => { root.context-open = false; if root.panel == "study" || root.panel-return == "study" { root.close-study(); } root.panel = ""; reader-keys.focus(); }
+ function open-tafsir-books() { root.panel-return = "study"; root.panel = "downloads"; root.reveal-tafsir = true; }
  out property <float> titlebar-height: 28;
  out property <float> brand-x: 8; out property <float> brand-w: 0;
  out property <float> nav-x: 0; out property <float> nav-w: 0; out property <int> nav-count: 3;
@@ -591,11 +632,11 @@ export component ReaderWindow inherits Window {
   Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
   root.render-requested(root.canvas-w, root.canvas-h);
  }
- changed theme => { root.dark = root.theme == 0 || root.theme == 3 || root.theme == 4; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
+ changed theme => { root.study-restyle(); root.dark = root.theme == 0 || root.theme == 3 || root.theme == 4; Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
  changed arabic => { root.searched-query = "\u{1}"; root.context-open = false; root.preferences-changed(); root.render-requested(root.canvas-w, root.canvas-h); }
  changed render-generation => { root.context-open = false; }
  changed context-open => { if root.context-open { root.hover-left(); } else { root.listen-more = false; } }
- changed study-body => { if root.study-body != "" && root.panel == "" { root.panel = "study"; } }
+ changed study-body => { root.study-restyle(); if root.study-body != "" && root.panel == "" { root.panel = "study"; } }
  forward-focus: reader-keys;
  reader-keys := FocusScope {
   x: 0px; y: 0px; width: root.width; height: root.height;
@@ -660,23 +701,46 @@ export component ReaderWindow inherits Window {
      // by 3, 6 and 8 px at the sides and 3 and 6 px below, each a step closer to
      // the edge colour, so a few pages show behind the open book. Each copy is
      // drawn as a ring, painting only the band that can show around the page.
-     if root.book-w > 0 : Rectangle {
+     // Page edges as fore-edges of a closed book: a few sheets of paper behind
+     // the outer side of each page, each a little shorter than the one before,
+     // with a thin line where one sheet meets the next. They show only beside the
+     // pages and curve round the outer corners; nothing sits above or below.
+     // Each sheet is a paper ring plus a hairline, so little is painted.
+     if root.book-w > 0 : edges := Rectangle {
       x: (root.raster-canvas-x + root.image-x + root.book-x) * 1px; y: (root.image-y + root.book-y) * 1px;
       width: root.book-w * 1px; height: root.book-h * 1px;
+      // While two pages turn, the sheet nearest the pages turns with the leaf:
+      // beside the lifted part it is drawn on the leaf instead (see the turn below),
+      // and the next sheet comes into view on the side the leaf left as it lands.
+      private property <bool> leaf-turning: root.turn-running && !root.turn-single && root.previous-book.width > 0 && root.turn-progress > 0.002;
+      private property <length> spine: (root.image-w / 2 - root.book-x) * 1px;
+      private property <length> source-x: root.turn-direction > 0 ? -24px : self.spine;
+      private property <length> source-w: root.turn-direction > 0 ? self.spine + 24px : self.width - self.spine + 24px;
       for sheet in [
-       { side: 0, below: 6, tone: 0.66 },
-       { side: 0, below: 3, tone: 0.82 },
-       { side: 8, below: 0, tone: 0.58 },
-       { side: 6, below: 0, tone: 0.72 },
-       { side: 3, below: 0, tone: 0.86 },
-      ] : Rectangle {
-       // Side sheets start a little lower, as page edges under the top page do,
-       // so their rounded corners step down instead of bunching at the corner.
-       x: -sheet.side * 1px; y: (sheet.below + sheet.side * 0.6) * 1px;
-       width: parent.width + sheet.side * 2px; height: parent.height - sheet.side * 0.6px;
-       border-radius: 12px;
-       border-width: (sheet.side + sheet.below + 6) * 1px;
-       border-color: UiColors.surface.mix(UiColors.edge, sheet.tone);
+       { side: 7.5, inset: 7, tone: 0.5 },
+       { side: 5, inset: 4.5, tone: 0.32 },
+      ] : EdgeSheet { side: sheet.side; inset: sheet.inset; fill: root.paper.mix(UiColors.canvas, 1 - sheet.tone); line: UiColors.edge.mix(UiColors.muted, 0.72); frame-x: 0px; frame-y: 0px; frame-w: edges.width; frame-h: edges.height; }
+      if !edges.leaf-turning : EdgeSheet { side: 2.5; inset: 2; fill: root.paper.mix(UiColors.canvas, 0.84); line: UiColors.edge.mix(UiColors.muted, 0.72); frame-x: 0px; frame-y: 0px; frame-w: edges.width; frame-h: edges.height; }
+      // The side the leaf turns towards keeps its sheet.
+      if edges.leaf-turning : Rectangle {
+       x: root.turn-direction > 0 ? edges.spine : -24px; y: -24px;
+       width: root.turn-direction > 0 ? edges.width - edges.spine + 24px : edges.spine + 24px; height: edges.height + 48px; clip: true;
+       EdgeSheet { side: 2.5; inset: 2; fill: root.paper.mix(UiColors.canvas, 0.84); line: UiColors.edge.mix(UiColors.muted, 0.72); frame-x: -parent.x; frame-y: 24px; frame-w: edges.width; frame-h: edges.height; }
+      }
+      // The side it leaves keeps the sheet only where the page still lies flat.
+      if edges.leaf-turning : FoldClip {
+       plane-x: root.fold-plane-x - root.book-x; plane-y: root.fold-plane-y - root.book-y; plane-angle: root.fold-plane-angle * 1deg;
+       extent: max(root.image-w, root.image-h) * 4px;
+       Rectangle {
+        x: edges.source-x; y: -24px; width: edges.source-w; height: edges.height + 48px; clip: true;
+        EdgeSheet { side: 2.5; inset: 2; fill: root.paper.mix(UiColors.canvas, 0.84); line: UiColors.edge.mix(UiColors.muted, 0.72); frame-x: -edges.source-x; frame-y: 24px; frame-w: edges.width; frame-h: edges.height; }
+       }
+      }
+      // The next sheet there comes into view as the leaf lands.
+      if edges.leaf-turning && root.turn-progress > 0.8 : Rectangle {
+       x: edges.source-x; y: -24px; width: edges.source-w; height: edges.height + 48px; clip: true;
+       opacity: ((root.turn-progress - 0.8) * 5).clamp(0, 1);
+       EdgeSheet { side: 2.5; inset: 2; fill: root.paper.mix(UiColors.canvas, 0.84); line: UiColors.edge.mix(UiColors.muted, 0.72); frame-x: -edges.source-x; frame-y: 24px; frame-w: edges.width; frame-h: edges.height; }
       }
      }
      // Page rasters are transparent outside the rounded paper frame (see
@@ -734,6 +798,19 @@ export component ReaderWindow inherits Window {
         FoldClip {
          plane-x: root.fold-plane-x; plane-y: root.fold-plane-y; plane-angle: root.fold-plane-angle * 1deg;
          extent: max(root.image-w,root.image-h) * 4px;
+         // The edge sheet travelling with the leaf: it shows past the leaf's
+         // outer edge and lands on the inner sheet of the other side.
+         if !root.turn-single && root.book-w > 0 : Rectangle {
+          x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
+          width: root.image-w / 2 * 1px; height: root.image-h * 1px;
+          transform-origin: {x:0px,y:0px}; transform-rotation: root.fold-back-angle * 1deg;
+          Rectangle {
+           x: (root.turn-direction > 0 ? 0 : root.book-x - 2.5) * 1px; y: (root.book-y + 2) * 1px;
+           width: (root.turn-direction > 0 ? root.book-x + root.book-w - root.image-w / 2 + 2.5 : root.image-w / 2 - root.book-x + 2.5) * 1px;
+           height: (root.book-h - 4) * 1px; border-radius: 13.25px;
+           background: root.paper.mix(UiColors.canvas, 0.84); border-width: 1px; border-color: UiColors.edge.mix(UiColors.muted, 0.72);
+          }
+         }
          Rectangle {
           x: root.fold-back-x * 1px; y: root.fold-back-y * 1px;
           width: root.turn-single ? root.image-w * 1px : root.image-w / 2 * 1px; height: root.image-h * 1px;
@@ -749,11 +826,6 @@ export component ReaderWindow inherits Window {
         if root.turn-progress <= 0.002 : Image { width: parent.width; height: parent.height; source: root.previous-book; image-fit: fill; }
        }
       }
-     }
-     if root.book-w > 0 && !root.turn-running : Rectangle {
-      x: (root.raster-canvas-x + root.image-x + root.book-x + 6) * 1px; y: (root.image-y + root.book-y + 6) * 1px;
-      width: (root.book-w - 12) * 1px; height: (root.book-h - 12) * 1px;
-      border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.45);
      }
      if !root.context-open && !root.render-busy && root.hover-rects.length > 0 : Rectangle {
       background: transparent;
@@ -789,7 +861,7 @@ export component ReaderWindow inherits Window {
       }
       if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
        self.edge-click = false;
-       if !root.context-open && self.mouse-x / 1px >= root.image-x && self.mouse-x / 1px <= root.image-x + root.image-w && self.mouse-y / 1px >= root.image-y && self.mouse-y / 1px <= root.image-y + root.image-h {
+       if !root.context-open && root.panel != "study" && !root.study-closing && self.mouse-x / 1px >= root.image-x && self.mouse-x / 1px <= root.image-x + root.image-w && self.mouse-y / 1px >= root.image-y && self.mouse-y / 1px <= root.image-y + root.image-h {
         // Page edges, and a generous area around each outer corner of the book.
         if self.mouse-x / 1px < root.image-x + 28 || self.mouse-x / 1px > root.image-x + root.image-w - 28 || self.mouse-y / 1px < root.image-y + 24 || self.mouse-y / 1px > root.image-y + root.image-h - 24
            || ((self.mouse-x / 1px < root.image-x + root.book-x + 110 || self.mouse-x / 1px > root.image-x + root.book-x + root.book-w - 110)
@@ -951,6 +1023,12 @@ export component ReaderWindow inherits Window {
          SettingsLink {text: root.arabic ? "العلامات المحفوظة" : "Saved bookmarks"; detail: root.bookmarks.length; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "bookmarks";} }
          SettingsLink {text: root.arabic ? "إدارة التنزيلات" : "Download manager"; detail: root.downloads.length; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "downloads";} }
         }
+        if root.software-rendering : Rectangle { height: sw-column.preferred-height; border-radius: 8px; border-width: 1px; border-color: UiColors.edge; background: UiColors.field.with-alpha(0.5);
+         sw-column := VerticalLayout { padding: 10px; spacing: 8px;
+          Text { text: root.arabic ? "الرسم البرمجي مفعّل (من إصدار سابق). يعمل التطبيق دون بطاقة الرسومات، فيكون تقليب الصفحات أقل سلاسة." : "Software rendering is on (set in an earlier version). The app draws without the graphics card, so page turns are less smooth."; color: UiColors.ink; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+          Action { height: 32px; text: root.arabic ? "إيقافه (يسري بعد إعادة التشغيل)" : "Turn it off (after a restart)"; clicked => { root.software-rendering = false; root.preferences-changed(); } }
+         }
+        }
         SectionHeading {text: root.arabic ? "المزيد" : "More"; horizontal-alignment: root.arabic ? right : left;}
         SettingsGroup {
          SettingsLink {text: root.arabic ? "اختصارات لوحة المفاتيح" : "Keyboard shortcuts"; detail: root.arabic ? "‹" : "›"; rtl: root.arabic; clicked => {root.panel-return = "settings"; root.panel = "shortcuts";} }
@@ -975,9 +1053,10 @@ export component ReaderWindow inherits Window {
         Rectangle {preferred-height: 0px; vertical-stretch: 1; background: transparent;}
        }
       }
-      if root.panel-kind == "downloads" : PanelScroll {
+      if root.panel-kind == "downloads" : downloads-scroll := PanelScroll {
        VerticalLayout {spacing: 10px;
-        HorizontalLayout { height: 22px;
+        Timer { interval: 80ms; running: root.reveal-tafsir; triggered => { root.reveal-tafsir = false; downloads-scroll.reveal(tafsir-section.y, downloads-scroll.height); } }
+        HorizontalLayout { height: 22px; padding-left: 4px; padding-right: 4px;
          SectionHeading { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.arabic ? "على هذا الجهاز" : "On this PC"; horizontal-alignment: root.arabic ? right : left; }
          Text { layout-order: root.arabic ? 0 : 1; text: root.downloads-storage; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
         }
@@ -1014,16 +1093,34 @@ export component ReaderWindow inherits Window {
          }
          if root.download-status != "" : Text { text: root.download-status; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
         }
+        // Complete tafsir books from Quran.com, kept on this PC for offline reading.
+        tafsir-section := VerticalLayout { spacing: 10px;
+        if root.tafsir-rows.length > 0 : SectionHeading { text: root.arabic ? "كتب التفسير" : "Tafsir books"; horizontal-alignment: root.arabic ? right : left; }
+        if root.tafsir-rows.length > 0 : Text { min-width: 0px; text: root.arabic ? "نزّل كتاب تفسير كاملًا من Quran.com ليظهر في قائمة مصادر التفسير ويُقرأ دون اتصال." : "Download a complete tafsir from Quran.com. It appears in the tafsir source list and works offline."; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        for row in root.tafsir-rows : Rectangle { height: 52px; border-radius: 8px; background: UiColors.field.with-alpha(0.35); border-width: 1px; border-color: UiColors.edge.with-alpha(0.5);
+         HorizontalLayout { padding-left: 12px; padding-right: 8px; padding-top: 9px; padding-bottom: 9px; spacing: 8px;
+          VerticalLayout { layout-order: 1; horizontal-stretch: 1; alignment: center; spacing: 2px;
+           Text { text: row.title; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
+           Text { text: row.detail; color: UiColors.muted; font-size: 11px; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
+          }
+          Action { layout-order: root.arabic ? 0 : 2; width: 76px; height: 32px; primary: !row.installed && row.action != (root.arabic ? "إلغاء" : "Cancel"); enabled: row.enabled; text: row.action; hint: row.action + " · " + row.title; clicked => { root.tafsir-action(row.source); } }
+         }
+        }
+        if root.tafsir-rows.length > 0 && root.tafsir-progress >= 0 : Rectangle { height: 6px; border-radius: 3px; background: UiColors.edge;
+         Rectangle { x: root.arabic ? parent.width - self.width : 0px; width: parent.width * root.tafsir-progress; border-radius: 3px; background: UiColors.accent; }
+        }
+        if root.tafsir-rows.length > 0 && root.tafsir-status != "" : Text { min-width: 0px; text: root.tafsir-status; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+        }
         Rectangle {preferred-height: 0px; vertical-stretch: 1; background: transparent;}
        }
       }
       if root.panel-kind == "study" : VerticalLayout {
        spacing: 8px;
-       ChoiceField { init => { root.study-choice-height = self.height / 1px; } changed height => { root.study-choice-height = self.height / 1px; } rtl: root.arabic; label: root.arabic ? "مصدر التفسير" : "Tafsir source"; model: root.arabic ? ["المختصر في التفسير", "تفسير السعدي"] : ["Saheeh International · translation"]; current-index: root.arabic ? min(root.study-source, 1) : 0; selected(i) => { root.study-source = root.arabic ? i : 2; root.study-source-changed(root.study-source); reader-keys.focus(); } }
+       ChoiceField { init => { root.study-choice-height = self.height / 1px; } changed height => { root.study-choice-height = self.height / 1px; } rtl: root.arabic; label: root.arabic ? "مصدر التفسير" : "Tafsir source"; model: root.study-source-names; current-index <=> root.study-source-index; selected(i) => { if i >= 0 && i < root.study-source-ids.length { root.study-source = root.study-source-ids[i]; root.study-source-changed(root.study-source); reader-keys.focus(); } else { root.study-source-changed(root.study-source); root.open-tafsir-books(); } } }
        HorizontalLayout { height: 30px; spacing: 8px;
-        Action { layout-order: root.arabic ? 2 : 0; width: 32px; text: "‹"; hint: root.arabic ? "الآية السابقة" : "Previous ayah"; clicked => { root.study-step(-1); reader-keys.focus(); } }
+        Action { layout-order: root.arabic ? 2 : 0; width: 32px; symbol: root.arabic ? 4 : 3; text: root.arabic ? "الآية السابقة" : "Previous ayah"; hint: root.arabic ? "الآية السابقة" : "Previous ayah"; clicked => { root.study-step(-1); reader-keys.focus(); } }
         Text { layout-order: 1; text: root.study-title; color: UiColors.accent; font-size: 13px; font-weight: 600; horizontal-stretch: 1; horizontal-alignment: center; vertical-alignment: center; overflow: elide; Tooltip { Text { text: root.study-title; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } } }
-        Action { layout-order: root.arabic ? 0 : 2; width: 32px; text: "›"; hint: root.arabic ? "الآية التالية" : "Next ayah"; clicked => { root.study-step(1); reader-keys.focus(); } }
+        Action { layout-order: root.arabic ? 0 : 2; width: 32px; symbol: root.arabic ? 3 : 4; text: root.arabic ? "الآية التالية" : "Next ayah"; hint: root.arabic ? "الآية التالية" : "Next ayah"; clicked => { root.study-step(1); reader-keys.focus(); } }
        }
        HorizontalLayout { height: 24px;
         QuietLink { width: 104px; text: root.arabic ? "حجم النص" : "Text size"; clicked => { root.size-tools = !root.size-tools; } }
@@ -1036,13 +1133,14 @@ export component ReaderWindow inherits Window {
         Action { layout-order: root.arabic ? 0 : 2; width: 44px; text: "A+"; hint: root.arabic ? "تكبير نص التفسير" : "Larger study text"; enabled: root.study-size < 26; clicked => { root.study-size = min(26, root.study-size + 1); root.preferences-changed(); } }
        }
        Rectangle { height: 1px; background: UiColors.edge; }
-       body := ReadingBody { body: root.study-body; text-size: root.study-size; rtl: root.arabic; vertical-stretch: 1; }
-       Rectangle { height: 16px; background: transparent; Text { width: parent.width; height: parent.height; text: root.arabic ? "مرّر لقراءة بقية التفسير" : "Scroll to continue reading"; opacity: body.overflowing ? 1 : 0; color: UiColors.muted; font-size: 11px; horizontal-alignment: root.arabic ? right : left; } }
-       Text { text: root.arabic ? "المصدر: المكتبة القرآنية الشاملة" : "Source: Quranic Universal Library"; color: UiColors.muted; font-size: 10px; horizontal-alignment: root.arabic ? right : left; }
+       body := ReadingBody { body: root.study-styled; text-size: root.study-size; rtl: root.arabic; vertical-stretch: 1; }
+       HorizontalLayout { height: 22px; spacing: 8px;
+        Text { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; vertical-alignment: center; text: root.study-source >= 3 ? (root.arabic ? "المصدر: Quran.com" : "Source: Quran.com") : root.arabic ? "المصدر: المكتبة القرآنية الشاملة" : "Source: Quranic Universal Library"; color: UiColors.muted; font-size: 10px; horizontal-alignment: root.arabic ? right : left; }
+        if root.tafsir-rows.length > 0 : QuietLink { layout-order: root.arabic ? 0 : 1; width: 96px; height: 22px; subtle: true; text: root.arabic ? "تفاسير أخرى" : "More tafsirs"; hint: root.arabic ? "تنزيل كتب تفسير أخرى" : "Download more tafsir books"; clicked => { root.open-tafsir-books(); } }
+       }
        if root.audio-active : Rectangle { height: 1px; background: UiColors.edge; }
        if root.audio-active : HorizontalLayout { height: 24px;
         Text { text: root.audio-title; color: UiColors.muted; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
-        Action { width: 34px; quiet: true; enabled: !root.download-busy && !root.current-saved; symbol: root.current-saved ? 15 : 14; text: root.arabic ? "تنزيل السورة" : "Download surah"; hint: root.current-saved ? (root.arabic ? "هذه السورة محفوظة للاستماع دون اتصال" : "This surah is saved for offline listening") : (root.arabic ? "نزّل هذه السورة لتستمع إليها دون اتصال" : "Download this surah to listen offline"); clicked => { root.download-current(); } }
         Action { width: 34px; quiet: true; symbol: 5; text: root.arabic ? "إعدادات الاستماع" : "Listening settings"; hint: root.arabic ? "إعدادات الاستماع" : "Listening settings"; clicked => { root.panel = "listen"; } }
        }
        if root.audio-active : Transport { height: 124px; rtl: root.arabic; paused: root.audio-paused; terminal: root.audio-terminal; can-seek: root.audio-can-seek; loading: root.audio-loading; clock: root.audio-clock; status: root.audio-status; progress: root.audio-progress; toggle => { root.audio-toggle(); } end => { root.audio-end(); } skip(s) => { root.audio-skip(s); } seek(v) => { root.audio-seek(v); } show-ayah => { root.show-recited-ayah(); } }
@@ -1070,7 +1168,28 @@ export component ReaderWindow inherits Window {
          ChoiceField { rtl: root.arabic; label: root.arabic ? "اختيار القارئ" : "Choose reciter"; model: root.reciters; current-index <=> root.reciter-index; enabled: root.reciters.length > 0; selected(i) => { root.reciter-changed(i); reader-keys.focus(); } }
          Text { height: 18px; text: root.arabic ? "مدى التلاوة" : "Listening range"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
          ChoiceField { rtl: root.arabic; label: root.arabic ? "مدى التلاوة" : "Listening range"; model: root.arabic ? ["من الآية إلى نهاية السورة", "هذه الآية فقط", "حتى نهاية الصفحة", "السورة كاملة", "حتى نهاية القرآن"] : ["From the ayah to the end of the surah", "This ayah only", "To the end of the page", "The whole surah", "To the end of the Quran"]; current-index <=> root.listen-scope; }
-         if root.audio-active && !root.current-saved : Action { height: 34px; text: root.download-busy ? (root.arabic ? "جارٍ تنزيل السورة… " : "Downloading the surah… ") + round(root.download-progress * 100) + "%" : (root.arabic ? "نزّل السورة التي تستمع إليها" : "Download the surah you're listening to"); enabled: !root.download-busy; clicked => { root.download-current(); } }
+         if root.audio-active && !root.current-saved && !root.confirm-download : HorizontalLayout { height: 34px; spacing: 6px;
+          Action { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.download-busy ? (root.arabic ? "جارٍ تنزيل السورة… " : "Downloading the surah… ") + round(root.download-progress * 100) + "%" : (root.arabic ? "تنزيل تلاوة هذه السورة" : "Download this surah's recitation"); enabled: !root.download-busy; clicked => { root.confirm-download = true; } }
+          Action { layout-order: root.arabic ? 0 : 1; width: 34px; quiet: true; symbol: 16; selected: root.download-info; subtle: true; text: root.arabic ? "ما فائدة التنزيل؟" : "What does downloading do?"; hint: root.download-info-text; clicked => { root.download-info = !root.download-info; } }
+         }
+         if root.audio-active && !root.current-saved && !root.confirm-download && root.download-info : VerticalLayout { spacing: 3px;
+          Text { min-width: 0px; text: root.download-info-text; color: UiColors.muted; font-size: 12px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+          Text { min-width: 0px; text: root.arabic ? "مكان الحفظ:" : "Saved in:"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+          // A path has no spaces to wrap at, so it may break anywhere.
+          Text { min-width: 0px; text: root.download-folder; color: UiColors.muted; font-size: 11px; wrap: char-wrap; horizontal-alignment: left; }
+         }
+         // Saving takes disk space, so it is confirmed first, with its size when known.
+         if root.audio-active && root.confirm-download : Rectangle { height: confirm-column.preferred-height; border-radius: 8px; border-width: 1px; border-color: UiColors.edge; background: UiColors.field.with-alpha(0.5);
+          confirm-column := VerticalLayout { padding: 12px; spacing: 8px;
+           Text { text: (root.arabic ? "حفظ " : "Save ") + root.download-target + (root.arabic ? " على هذا الجهاز للاستماع دون اتصال؟" : " on this PC for offline listening?"); color: UiColors.ink; font-size: 13px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+           if root.download-estimate != "" : Text { text: root.download-estimate; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
+           HorizontalLayout { height: 32px; spacing: 8px;
+            Action { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; primary: true; text: root.arabic ? "تنزيل" : "Download"; clicked => { root.confirm-download = false; root.download-current(); } }
+            Action { layout-order: root.arabic ? 0 : 1; horizontal-stretch: 1; text: root.arabic ? "إلغاء" : "Cancel"; clicked => { root.confirm-download = false; } }
+           }
+          }
+         }
+         if root.audio-active && root.current-saved : Text { text: root.arabic ? "هذه السورة محفوظة على هذا الجهاز." : "This surah is saved on this PC."; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
          Action { height: 36px; text: root.arabic ? "بدء التلاوة" : "Start recitation"; primary: true; enabled: root.reciters.length > 0; clicked => { root.play-selected(); } }
          Rectangle { height: 1px; background: UiColors.edge; }
          Text { height: 18px; text: root.arabic ? "سرعة التلاوة" : "Playback speed"; color: UiColors.muted; font-size: 12px; horizontal-alignment: root.arabic ? right : left; }
@@ -1091,18 +1210,16 @@ export component ReaderWindow inherits Window {
     }    // Open panels dock playback into the toolbar, never over study text.
     Timer { interval: 6s; running: root.audio-finished && root.panel != "listen" && root.panel != "study"; triggered => { root.audio-end(); } }
     if root.audio-active && root.player-expanded && !root.player-docked && root.panel == "" : Rectangle {
-     width: min(264px, max(188px, (canvas.width - root.image-w * 1px) / 2 - 16px)); height: (root.audio-status == "" ? 186px : 202px) + (root.download-busy ? 18px : 0px);
+     width: min(264px, max(188px, (canvas.width - root.image-w * 1px) / 2 - 16px)); height: root.audio-status == "" ? 186px : 202px;
      x: root.arabic ? canvas.width - self.width - 10px : 10px; y: canvas.height - self.height - 10px;
      border-radius: 12px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
      VerticalLayout { padding: 11px; spacing: 7px;
       HorizontalLayout { height: 26px; spacing: 6px;
-       Text { text: root.audio-title; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-stretch: 1; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; Tooltip { Text { text: root.audio-title; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } } }
-       Action { width: 34px; enabled: !root.download-busy && !root.current-saved; symbol: root.current-saved ? 15 : 14; quiet: true; text: root.arabic ? "تنزيل السورة" : "Download surah"; hint: root.current-saved ? (root.arabic ? "هذه السورة محفوظة للاستماع دون اتصال" : "This surah is saved for offline listening") : root.download-busy ? (root.arabic ? "جارٍ التنزيل… " : "Downloading… ") + round(root.download-progress * 100) + "%" : (root.arabic ? "نزّل هذه السورة لتستمع إليها دون اتصال" : "Download this surah to listen offline"); clicked => { root.download-current(); } }
+       Text { min-width: 0px; text: root.audio-title; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-stretch: 1; horizontal-alignment: root.arabic ? right : left; vertical-alignment: center; overflow: elide; Tooltip { Text { text: root.audio-title; color: UiColors.ink; max-width: 320px; wrap: word-wrap; } } }
        Action { width: 34px; symbol: 5; text: root.arabic ? "إعدادات الاستماع" : "Listening settings"; hint: root.arabic ? "إعدادات الاستماع" : "Listening settings"; clicked => { root.panel = "listen"; } }
        Action { width: 28px; symbol: 2; text: root.arabic ? "تصغير المشغّل" : "Minimize player"; hint: root.arabic ? "تصغير المشغّل إلى شريط العنوان" : "Minimize player to the title bar"; clicked => { root.player-expanded = false; } }
       }
       Transport { rtl: root.arabic; paused: root.audio-paused; terminal: root.audio-terminal; can-seek: root.audio-can-seek; loading: root.audio-loading; clock: root.audio-clock; status: root.audio-status; progress: root.audio-progress; toggle => { root.audio-toggle(); } end => { root.audio-end(); } skip(s) => { root.audio-skip(s); } seek(v) => { root.audio-seek(v); } show-ayah => { root.show-recited-ayah(); } }
-      if root.download-busy : Text { text: (root.arabic ? "جارٍ تنزيل السورة… " : "Downloading the surah… ") + round(root.download-progress * 100) + "%"; color: UiColors.muted; font-size: 11px; horizontal-alignment: center; }
      }
     }
     if root.fullscreen && root.panel == "" : Action { x: root.arabic ? canvas.width - self.width - 8px : 8px; y: 5px; width: 128px; height: 30px; quiet: true; text: root.arabic ? "إنهاء ملء الشاشة" : "Exit full screen"; hint: root.arabic ? "إنهاء ملء الشاشة (Escape)" : "Exit full screen (Escape)"; clicked => { root.fullscreen-requested(); } }
@@ -1140,6 +1257,25 @@ export component ReaderWindow inherits Window {
       MenuItem { icon: 2; rtl: root.arabic; text: root.bookmark-present ? (root.arabic ? "إزالة العلامة" : "Remove bookmark") : (root.arabic ? "حفظ علامة" : "Save bookmark"); detail: root.bookmark-present ? (root.arabic ? "إزالتها من العلامات المحفوظة" : "Remove it from Saved bookmarks") : (root.arabic ? "تجدها لاحقًا في العلامات المحفوظة" : "Find it later in Saved bookmarks"); clicked => { root.context-open = false; root.bookmark-selected(); } }
      }
     }
+    if root.error-text != "" : Rectangle {
+     width: min(520px, canvas.width - 24px); height: error-column.preferred-height;
+     x: (canvas.width - self.width) / 2; y: 12px;
+     border-radius: 10px; border-width: 1px; border-color: #c0504d; background: UiColors.surface;
+     drop-shadow-blur: 14px; drop-shadow-offset-y: 4px; drop-shadow-color: #00000040;
+     accessible-role: text; accessible-label: root.error-text;
+     TouchArea { }
+     error-column := HorizontalLayout { padding: 12px; spacing: 10px;
+      Rectangle { layout-order: root.arabic ? 3 : 0; width: 22px; height: 22px; border-radius: 11px; background: #c0504d;
+       Text { width: parent.width; height: parent.height; text: "!"; color: #ffffff; font-size: 14px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+      }
+      VerticalLayout { layout-order: 1; horizontal-stretch: 1; spacing: 3px;
+       Text { text: root.error-text; color: UiColors.ink; font-size: 13px; font-weight: 600; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+       if root.error-detail != "" : Text { text: root.error-detail; color: UiColors.muted; font-size: 11px; wrap: word-wrap; horizontal-alignment: root.arabic ? right : left; }
+      }
+      if root.error-retry : Action { layout-order: 2; width: 92px; height: 30px; text: root.arabic ? "إعادة المحاولة" : "Try again"; clicked => { root.error-retry-requested(); } }
+      Action { layout-order: root.arabic ? 0 : 3; width: 28px; height: 28px; quiet: true; symbol: 12; text: root.arabic ? "إغلاق" : "Dismiss"; clicked => { root.error-text = ""; root.error-retry = false; } }
+     }
+    }
     if root.notice != "" || root.notification != "" : Rectangle {
      width: min(380px, canvas.width - 30px); height: 38px; x: (canvas.width - self.width) / 2; y: canvas.height - self.height - 12px;
      border-radius: 8px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
@@ -1164,13 +1300,11 @@ export component ReaderWindow inherits Window {
   private property <bool> header-step: self.step >= 3 && !root.fullscreen;
   // The marked area in window coordinates; zero width for none.
   private property <float> tx: self.step == 1 ? root.raster-canvas-x + root.image-x + root.book-x - 6
-     : self.step == 2 ? root.menu-x - 5
      : self.header-step ? self.head-x[self.step - 3] - 3 : 0;
   private property <float> ty: self.step == 1 ? self.top + root.image-y + root.book-y + root.book-h - 150
-     : self.step == 2 ? self.top + root.menu-y - 5
      : self.header-step ? 1 : 0;
-  private property <float> tw: self.step == 1 ? 156 : self.step == 2 ? 310 : self.header-step ? (self.step == 5 ? 92 : 86) : 0;
-  private property <float> th: self.step == 1 ? 156 : self.step == 2 ? (root.context-open ? root.menu-h + 10 : 0) : self.header-step ? 27 : 0;
+  private property <float> tw: self.step == 1 ? 156 : self.header-step ? (self.step == 5 ? 92 : 86) : 0;
+  private property <float> th: self.step == 1 ? 156 : self.header-step ? 27 : 0;
   private property <bool> marked: self.tw > 0 && self.th > 0;
   function finish() {
    root.context-open = false;
@@ -1182,7 +1316,6 @@ export component ReaderWindow inherits Window {
    root.context-open = false; root.panel = "";
    root.onboarding-step = n;
    peek.ticks = 0; peek.running = n == 1;
-   menu-try.tries = 0; menu-try.asked = 0; menu-try.running = n == 2;
    if n == 1 { self.start-page = root.page; }
    tour-keys.focus();
   }
@@ -1208,22 +1341,6 @@ export component ReaderWindow inherits Window {
     if self.ticks == 60 { if root.drag-active { root.end-page-drag(false); } self.running = false; }
    }
   }
-  // Step 2 opens the real ayah menu, waiting for a page turn or redraw to finish.
-  menu-try := Timer {
-   interval: 250ms; running: false;
-   in-out property <int> tries: 0;
-   in-out property <int> asked: 0;
-   triggered => {
-    // Stop for good once it has opened, so it never opens again by itself.
-    if tour.step != 2 || root.context-open || self.tries >= 16 || self.asked >= 3 { self.running = false; return; }
-    self.tries += 1;
-    if root.drag-active { root.end-page-drag(false); }
-    if self.tries >= 2 && !root.render-busy && !root.turn-running && !root.drag-active && !root.drag-canceling && !root.book-sliding {
-     self.asked += 1;
-     root.context-ayah(root.image-x + root.book-x + root.book-w * 0.25, root.image-y + root.book-y + root.book-h * 0.42);
-    }
-   }
-  }
   if tour.marked : Rectangle { x: tour.tx * 1px; y: tour.ty * 1px; width: tour.tw * 1px; height: tour.th * 1px; border-radius: tour.header-step ? 8px : 14px; border-width: 2px; border-color: UiColors.accent; }
   if tour.marked : Rectangle { x: (tour.tx - 3) * 1px; y: (tour.ty - 3) * 1px; width: (tour.tw + 6) * 1px; height: (tour.th + 6) * 1px; border-radius: tour.header-step ? 10px : 16px; border-width: 3px; border-color: UiColors.accent.with-alpha(0.22); }
   // The welcome card, centred, over the open book.
@@ -1233,6 +1350,7 @@ export component ReaderWindow inherits Window {
    border-radius: 18px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
    drop-shadow-blur: 30px; drop-shadow-offset-y: 10px; drop-shadow-color: #00000045;
    TouchArea { }
+   Action { x: root.arabic ? 10px : parent.width - self.width - 10px; y: 10px; width: 30px; height: 30px; quiet: true; symbol: 12; text: root.arabic ? "إغلاق" : "Close"; clicked => { tour.finish(); } }
    welcome := VerticalLayout { padding: 26px; padding-top: 22px; spacing: 12px;
     HorizontalLayout { alignment: center; Image { width: 72px; height: 72px; source: @image-url("../assets/app.png"); } }
     Text { text: root.arabic ? "قارئ المصحف" : "Quran Mushaf Reader"; color: UiColors.ink; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
@@ -1286,6 +1404,16 @@ export component ReaderWindow inherits Window {
       : tour.step == 3 ? (root.arabic ? "ابحث بكلمات أو بآية مثل 2:255، أو انتقل إلى أي سورة أو صفحة أو جزء. " : "Look up words or an ayah like 2:255, or jump to any surah, page or juz. ") + (root.shortcut-rows.length > 0 ? root.shortcut-rows[0].detail : "")
       : tour.step == 4 ? (root.arabic ? "اختر القارئ، ونزّل السور لتستمع إليها دون اتصال." : "Pick a reciter, and download surahs to listen offline.")
       : (root.arabic ? "المظاهر وخيارات القراءة والاختصارات. ويمكنك إعادة هذه الجولة من هنا." : "Themes, reading options and shortcuts. You can replay this tour from here."); }
+    // A still picture of the ayah menu: nothing opens or moves on the page.
+    if tour.step == 2 : Rectangle { height: preview-column.preferred-height; border-radius: 10px; border-width: 1px; border-color: UiColors.edge; background: UiColors.surface;
+     preview-column := VerticalLayout { padding: 6px; spacing: 0px;
+      MenuItem { icon: 0; rtl: root.arabic; text: root.arabic ? "التفسير" : "Tafsir"; detail: root.arabic ? "اقرأ تفسير الآية" : "Read the explanation"; }
+      MenuItem { icon: 1; rtl: root.arabic; text: root.arabic ? "الاستماع من هنا" : "Listen from here"; detail: root.arabic ? "حتى نهاية السورة" : "Continue to the end of this surah"; }
+      MenuItem { icon: 2; rtl: root.arabic; text: root.arabic ? "حفظ علامة" : "Save bookmark"; detail: root.arabic ? "تجدها لاحقًا في العلامات المحفوظة" : "Find it later in Saved bookmarks"; }
+     }
+     // A picture only: it takes no clicks or hover.
+     TouchArea { }
+    }
     HorizontalLayout { height: 32px; spacing: 8px; padding-top: 4px;
      HorizontalLayout { layout-order: root.arabic ? 3 : 0; alignment: start; spacing: 5px; padding-top: 12px; padding-bottom: 12px;
       for dot[d] in 5 : Rectangle { width: d + 1 == tour.step ? 14px : 6px; height: 6px; border-radius: 3px; background: d + 1 == tour.step ? UiColors.accent : UiColors.edge; }
