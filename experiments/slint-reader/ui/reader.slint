@@ -1326,6 +1326,16 @@ export component ReaderWindow inherits Window {
    key-pressed(event) => {
     if event.text == Key.Escape { tour.finish(); return accept; }
     if event.text == Key.Return { tour.next(); return accept; }
+    // The tour holds the keyboard, but the arrows still turn pages: step 1
+    // asks for a turn, and the reader must never need a click to answer keys.
+    if root.panel == "" && !root.context-open {
+     if event.text == Key.LeftArrow { root.navigate-key(1, event.repeat); return accept; }
+     if event.text == Key.RightArrow { root.navigate-key(-1, event.repeat); return accept; }
+    }
+    return reject;
+   }
+   key-released(event) => {
+    if event.text == Key.LeftArrow || event.text == Key.RightArrow { root.navigate-key-released(); }
     return reject;
    }
   }
