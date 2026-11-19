@@ -29,6 +29,10 @@ impl Drop for Apartment {
 pub struct Engine {
     resources: Resources,
     renderer: Renderer,
+    /// The portable renderer (HarfRust and tiny-skia), used unless the app is
+    /// started with --native-text; then the native DirectWrite renderer draws.
+    portable: Option<crate::portable_render::Renderer>,
+    portable_visible: Vec<crate::portable_render::VisibleLine>,
     image_source: Rect,
     hover_pixels: Vec<u8>,
     hover_size: (u32, u32),
@@ -53,6 +57,7 @@ pub struct Rendered {
 pub struct Prepared {
     pub raster: Rendered,
     visible: Vec<crate::render::InkLine>,
+    portable_visible: Option<Vec<crate::portable_render::VisibleLine>>,
     style: RenderStyle,
 }
 
@@ -92,16 +97,39 @@ pub struct RenderStyle {
 
 impl Engine {
     pub fn open(root: PathBuf) -> Result<Self> {
+        let began = std::time::Instant::now();
         unsafe { RoInitialize(RO_INIT_SINGLETHREADED)? };
         let apartment = Apartment;
         let mut resources = Resources::open(root.canonicalize()?)?;
+        let resources_ms = began.elapsed().as_secs_f64() * 1000.;
         let mut renderer = Renderer::new(&mut resources)?;
+        let native_ms = began.elapsed().as_secs_f64() * 1000. - resources_ms;
         // Original natural script; a user profile is deliberately never read.
         renderer.contextual = false;
         renderer.show_clock = false;
+        let portable = if std::env::args().any(|a| a == "--native-text") {
+            None
+        } else {
+            match crate::portable_render::Renderer::new(&mut resources) {
+                Ok(portable) => Some(portable),
+                Err(error) => {
+                    eprintln!("Portable renderer unavailable, using DirectWrite: {error}");
+                    None
+                }
+            }
+        };
+        if crate::portable_render::timing_enabled() {
+            eprintln!(
+                "[timing] engine open {:.1} ms: resources {resources_ms:.1}, DirectWrite {native_ms:.1}, portable {:.1}",
+                began.elapsed().as_secs_f64() * 1000.,
+                began.elapsed().as_secs_f64() * 1000. - resources_ms - native_ms
+            );
+        }
         Ok(Self {
             resources,
             renderer,
+            portable,
+            portable_visible: Vec::new(),
             image_source: Rect::default(),
             hover_pixels: Vec::new(),
             hover_size: (0, 0),
@@ -109,6 +137,14 @@ impl Engine {
             hover_cached: None,
             _apartment: apartment,
         })
+    }
+
+    /// Prepares what drawing `page` needs that does not depend on the window.
+    pub fn warm(&mut self, page: u32, contextual: bool) -> Result<()> {
+        match self.portable.as_mut() {
+            Some(portable) => portable.warm(&mut self.resources, page, contextual),
+            None => Ok(()),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -134,7 +170,10 @@ impl Engine {
         self.hover_size = (r.pixel_width, r.pixel_height);
         self.hover_theme = prepared.style.theme;
         self.hover_cached = None;
-        self.renderer.visible = prepared.visible;
+        match prepared.portable_visible {
+            Some(visible) => self.portable_visible = visible,
+            None => self.renderer.visible = prepared.visible,
+        }
         self.renderer.contextual = prepared.style.contextual;
         self.renderer.show_clock = prepared.style.show_clock;
         self.renderer.clock_24 = prepared.style.clock_24;
@@ -188,6 +227,50 @@ impl Engine {
             h: height_dip - 8.,
         };
         let geometry = app_core::book_geometry(area);
+        if let Some(portable) = self.portable.as_mut() {
+            portable.contextual = style.contextual;
+            portable.show_clock = style.show_clock;
+            portable.clock_24 = style.clock_24;
+            let raster = portable.raster_book(
+                &mut self.resources,
+                crate::portable_render::View {
+                    page,
+                    area,
+                    palette: crate::page_animation::palette(style.theme),
+                    selection,
+                    recitation: style.recitation,
+                    opening: style.opening,
+                    arabic,
+                },
+                96. * scale,
+            )?;
+            if raster.bgra.len() != pixel_byte_count(raster.width, raster.height)? {
+                return Err("Unexpected portable book pixel size".into());
+            }
+            let mut rgba = raster.bgra;
+            let bg = crate::page_animation::palette(style.theme).background;
+            let rgba_fingerprint = premultiplied_to_rgba(
+                &mut rgba,
+                [bg.r, bg.g, bg.b].map(|v| (v.clamp(0., 1.) * 255.).round() as u8),
+            )?;
+            let interactive_lines = raster.visible.len();
+            return Ok(Prepared {
+                visible: Vec::new(),
+                portable_visible: Some(raster.visible),
+                style,
+                raster: Rendered {
+                    rgba,
+                    pixel_width: raster.width,
+                    pixel_height: raster.height,
+                    source: raster.source,
+                    book_bounds: raster.bounds,
+                    single_page: geometry.single,
+                    elapsed_ms: began.elapsed().as_secs_f64() * 1000.,
+                    interactive_lines,
+                    rgba_fingerprint,
+                },
+            });
+        }
         let raster = self.renderer.raster_book_with_aa(
             &mut self.resources,
             BookView {
@@ -221,6 +304,7 @@ impl Engine {
         let interactive_lines = raster.visible.len();
         Ok(Prepared {
             visible: raster.visible,
+            portable_visible: None,
             style,
             raster: Rendered {
                 rgba,
@@ -248,8 +332,11 @@ impl Engine {
         {
             return None;
         }
-        self.renderer
-            .hit(image_x + self.image_source.x, image_y + self.image_source.y)
+        let (x, y) = (image_x + self.image_source.x, image_y + self.image_source.y);
+        if self.portable.is_some() {
+            return crate::portable_render::hit(&self.portable_visible, x, y);
+        }
+        self.renderer.hit(x, y)
     }
 
     /// Actual native verse bounds, local to the transferred book image.
@@ -259,6 +346,25 @@ impl Engine {
             return Vec::new();
         };
         let mut result = Vec::new();
+        if self.portable.is_some() {
+            for line in &self.portable_visible {
+                let mut selected = line.hits.iter().filter(|(_, k)| *k == key);
+                if let Some((first, _)) = selected.next() {
+                    let (left, right) = selected
+                        .fold((first.x, first.x + first.w), |(l, r), (v, _)| {
+                            (l.min(v.x), r.max(v.x + v.w))
+                        });
+                    result.push(Rect {
+                        x: left - 2. - self.image_source.x,
+                        y: first.y + first.h * 0.14 - self.image_source.y,
+                        w: right - left + 4.,
+                        h: first.h * 0.72,
+                    });
+                }
+            }
+            result.truncate(64);
+            return result;
+        }
         for line in &self.renderer.visible {
             if let Some(regions) = &line.hits {
                 let mut selected = regions.iter().filter(|(_, k)| *k == key);
@@ -369,6 +475,18 @@ impl Engine {
     /// Bounded QA probe through the same authoritative hit path as pointer
     /// interaction. Returned coordinates are local to the displayed image.
     pub fn probe_hit(&self) -> Option<(f32, f32, (u32, u32))> {
+        if self.portable.is_some() {
+            for line in self.portable_visible.iter().take(32) {
+                for (rect, expected) in line.hits.iter().take(128) {
+                    let x = rect.x + rect.w / 2. - self.image_source.x;
+                    let y = rect.y + rect.h / 2. - self.image_source.y;
+                    if self.hit(x, y) == Some(*expected) {
+                        return Some((x, y, *expected));
+                    }
+                }
+            }
+            return None;
+        }
         for line in self.renderer.visible.iter().take(32) {
             if let Some(regions) = &line.hits {
                 for (rect, expected) in regions.iter().take(128) {

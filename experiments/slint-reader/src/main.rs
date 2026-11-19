@@ -72,6 +72,10 @@ mod reader;
 mod render;
 mod shortcuts;
 mod turn_queue;
+// The portable page renderer: HarfRust shaping, Skrifa outlines, tiny-skia.
+mod portable_outlines;
+mod portable_render;
+mod portable_text;
 // Complete tafsir books downloaded from Quran.com into the profile.
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/tafsir_library.rs"]
@@ -121,6 +125,7 @@ enum Task {
     Hover(i32, i32, f32, f32),
     Resolve(i32, (u32, u32), i32, bool, ResolveKind),
     Prefetch(i32, View),
+    Warm(u32, bool),
     Sections,
 }
 #[derive(Clone, Copy)]
@@ -148,6 +153,7 @@ struct Pending {
     sections: bool,
     stop: bool,
     prefetch: std::collections::VecDeque<(i32, View)>,
+    warm: Option<(u32, bool)>,
 }
 #[derive(Default)]
 struct Queue {
@@ -168,6 +174,7 @@ impl Queue {
                     pending.resolve = Some((id, key, step, arabic, kind))
                 }
                 Task::Sections => pending.sections = true,
+                Task::Warm(page, contextual) => pending.warm = Some((page, contextual)),
                 Task::Prefetch(id, view) => {
                     if pending.prefetch.len() < 2 {
                         pending.prefetch.push_back((id, view));
@@ -193,7 +200,12 @@ impl Queue {
                 return Some(Task::Search(id, q, arabic, mode));
             }
             if let Some(r) = p.render.take() {
+                // Drawing the page does everything warming would.
+                p.warm = None;
                 return Some(Task::Render(r));
+            }
+            if let Some((page, contextual)) = p.warm.take() {
+                return Some(Task::Warm(page, contextual));
             }
             if let Some((id, sequence, x, y)) = p.hover.take() {
                 return Some(Task::Hover(id, sequence, x, y));
@@ -215,13 +227,17 @@ impl Queue {
             self.wake.notify_one();
         }
     }
-    fn prepare_neighbors(&self, generation: i32, view: View, single: bool) {
+    /// Prepares the spreads on both sides, the one in the reading direction
+    /// first: after a turn forward the next turn is most likely forward too,
+    /// and the spread just left is the one to come back to.
+    fn prepare_neighbors(&self, generation: i32, view: View, single: bool, backward: bool) {
         if let Ok(mut p) = self.pending.lock() {
             p.prefetch.clear();
             if view.selection.is_some() {
                 return;
             }
-            for direction in [-1, 1] {
+            let order = if backward { [-1, 1] } else { [1, -1] };
+            for direction in order {
                 let page = app_core::destination(view.page, direction, single);
                 if page != view.page {
                     p.prefetch.push_back((
@@ -373,7 +389,12 @@ fn start_worker(
                     .map_err(|error| error.to_string());
                     if let Ok(output) = &result {
                         let r = &output.raster;
-                        work.prepare_neighbors(request.generation, v, r.single_page);
+                        work.prepare_neighbors(
+                            request.generation,
+                            v,
+                            r.single_page,
+                            request.navigation && (v.page as i32) < request.from_page,
+                        );
                         let next = page_animation::Surface {
                             pixels: Arc::new(r.rgba.clone()),
                             width: r.pixel_width,
@@ -459,6 +480,17 @@ fn start_worker(
                         .search_mode(&query, arabic, mode)
                         .map_err(|e| e.to_string()),
                 ),
+                Task::Warm(page, contextual) => {
+                    let began = Instant::now();
+                    let result = engine.warm(page, contextual);
+                    if portable_render::timing_enabled() {
+                        eprintln!(
+                            "[timing] page {page} warmed in {:.1} ms: {result:?}",
+                            began.elapsed().as_secs_f64() * 1000.
+                        );
+                    }
+                    continue;
+                }
                 Task::Prefetch(id, view) => {
                     if id != native_generation {
                         continue;
@@ -475,6 +507,12 @@ fn start_worker(
                             view.style,
                         ) {
                             let bytes = page.raster.rgba.len();
+                            if portable_render::timing_enabled() {
+                                eprintln!(
+                                    "[timing] page {} prepared in advance in {:.1} ms",
+                                    view.page, page.raster.elapsed_ms
+                                );
+                            }
                             prepared.insert(view, page, bytes);
                         }
                         if engine.probe_hit() != original_hit {
@@ -652,7 +690,14 @@ fn request_render_with_intent(
     state.hover_sequence = state.hover_sequence.wrapping_add(1);
     state.requested = Some(view);
     let generation = state.generation;
+    let first_page = state.render_count == 0;
     drop(state);
+    if first_page {
+        startup_mark(&format!(
+            "page requested at {}x{} scale {}",
+            view.width, view.height, view.scale
+        ));
+    }
     ui.set_hover_rects(ModelRc::new(VecModel::from(Vec::<HoverRect>::new())));
     ui.set_turn_running(false);
     ui.set_turn_priming(false);
@@ -914,7 +959,20 @@ fn clear_outside_frame(
             0.
         };
         let (from, to) = (left + inset, right - inset);
-        for (col, p) in line.iter_mut().enumerate() {
+        // Inside the frame coverage is 1 and nothing changes: on rows clear of
+        // the top and bottom edges only the columns at the two sides are
+        // visited, instead of every pixel of the page on the UI thread.
+        let (sides, rest) = if vertical < 1. {
+            (0..width, width..width)
+        } else {
+            let left_end = ((from.max(0.).ceil() as usize) + 1).min(width);
+            let right_start = ((to - 1.).floor().max(0.) as usize)
+                .max(left_end)
+                .min(width);
+            (0..left_end, right_start..width)
+        };
+        for col in sides.chain(rest) {
+            let p = &mut line[col];
             let x = col as f32 + 0.5;
             let horizontal = (x - from + 0.5)
                 .clamp(0., 1.)
@@ -1054,11 +1112,29 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
             }
             s.committed = output.generation;
             s.render_count += 1;
+            if portable_render::timing_enabled() {
+                eprintln!(
+                    "[timing] page {} shown {:.0} ms after launch; prepared in {:.1} ms{}{}",
+                    output.page,
+                    LAUNCHED
+                        .get()
+                        .map_or(0., |t| t.elapsed().as_secs_f64() * 1000.),
+                    r.elapsed_ms,
+                    if output.prefetched {
+                        ", ready in advance"
+                    } else {
+                        ""
+                    },
+                    if native_turn { ", turning" } else { "" },
+                );
+            }
             s.probe = output.probe;
             s.last = json!({"generation":output.generation,"page":output.page,"nativePreparationMs":r.elapsed_ms,"pixelWidth":r.pixel_width,"pixelHeight":r.pixel_height,"transferBytes":r.rgba.len(),"source":[r.source.x,r.source.y,r.source.w,r.source.h],"bookBounds":[r.book_bounds.x,r.book_bounds.y,r.book_bounds.w,r.book_bounds.h],"singlePage":r.single_page,"interactiveLines":r.interactive_lines,"pixelFingerprintNotAuthenticityHash":format!("{:016x}",r.rgba_fingerprint),"probe":output.probe});
             s.last["prefetched"] = json!(output.prefetched);
             if s.qa {
-                s.qa_pixels = Some((r.rgba.clone(), r.pixel_width, r.pixel_height));
+                // What Slint is given: the raster with the margin outside the rounded
+                // frame made transparent. Only its opaque pixels must match exactly.
+                s.qa_pixels = Some((buffer.as_bytes().to_vec(), r.pixel_width, r.pixel_height));
             }
             // UI property change callbacks may open a panel and clear hover,
             // both of which access State. Never hold its borrow across them.
@@ -2722,8 +2798,11 @@ impl Qa {
                     for col in 0..*w {
                         let expected_index = ((row * w + col) * 4) as usize;
                         let actual_index = (((row + y) * pixels.width() + col + x) * 4) as usize;
-                        if expected[expected_index..expected_index + 4]
-                            != pixels.as_bytes()[actual_index..actual_index + 4]
+                        // The anti-aliased frame edge blends with the window
+                        // behind it; everything inside the frame is exact.
+                        if expected[expected_index + 3] == 255
+                            && expected[expected_index..expected_index + 4]
+                                != pixels.as_bytes()[actual_index..actual_index + 4]
                         {
                             differences += 1;
                         }
@@ -3012,7 +3091,9 @@ fn run() -> Result<()> {
             .into(),
         )
         .select()?;
+    startup_mark("backend selected");
     let ui = ReaderWindow::new()?;
+    startup_mark("window created");
     ui.on_compute_fold(|progress, width, height, single, direction, top| {
         let scene = page_animation::fold_scene(width, height, single, direction, progress, top);
         FoldGeometry {
@@ -3031,6 +3112,7 @@ fn run() -> Result<()> {
         profile_directory,
         qa_output.is_some() || player_output.is_some(),
     )?);
+    startup_mark("settings and controls ready");
     ui.set_pointer_hover_enabled(qa_output.is_none());
     let (worker, rx) = start_worker(
         resource_directory,
@@ -3793,7 +3875,13 @@ fn run() -> Result<()> {
             },
         );
     }
+    // Starting the GPU takes most of a second on first show, and the page's
+    // size is only known after it. Meanwhile the worker loads, shapes and lays
+    // out the first spread, which does not depend on the window.
+    queue.push(Task::Warm(state.borrow().page.max(1), ui.get_contextual()));
+    startup_mark("showing window");
     ui.show()?;
+    startup_mark("window shown");
     ui.window().with_winit_window(|window| {
         use winit::platform::windows::IconExtWindows;
         if let Ok(icon) = winit::window::Icon::from_resource(1, None) {
@@ -3889,7 +3977,21 @@ fn startup_failed(error: &str) -> ! {
     }
     std::process::exit(1);
 }
+/// When the process started, for `QR_TIMING`.
+static LAUNCHED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// With `QR_TIMING=1`, notes how long after launch a startup step finished.
+fn startup_mark(step: &str) {
+    if portable_render::timing_enabled() {
+        let ms = LAUNCHED
+            .get()
+            .map_or(0., |t| t.elapsed().as_secs_f64() * 1000.);
+        eprintln!("[timing] {ms:.0} ms after launch: {step}");
+    }
+}
+
 fn main() {
+    LAUNCHED.get_or_init(Instant::now);
     let args: Vec<_> = std::env::args_os().collect();
     if let Err(error) = gpu_choice::apply(&args) {
         startup_failed(&error.to_string());
@@ -3948,6 +4050,81 @@ mod tests {
         assert!(edge.is_some(), "the rounded edge is antialiased");
         let opaque = buffer.as_slice().iter().filter(|p| **p == page).count();
         assert!(opaque > 180 * 80 - 4 * 40);
+    }
+    #[test]
+    fn edge_only_frame_clearing_matches_every_pixel_coverage() {
+        // The earlier form: the coverage of every pixel, computed in full.
+        fn reference(
+            pixels: &mut [slint::Rgba8Pixel],
+            w: usize,
+            h: usize,
+            s: (f32, f32),
+            f: [f32; 4],
+        ) {
+            let (left, top) = (f[0] * s.0, f[1] * s.1);
+            let (right, bottom) = (left + f[2] * s.0, top + f[3] * s.1);
+            let radius = 12. * s.0.min(s.1);
+            for row in 0..h {
+                let y = row as f32 + 0.5;
+                let vertical = (y - top + 0.5)
+                    .clamp(0., 1.)
+                    .min((bottom - y + 0.5).clamp(0., 1.));
+                let corner = if y < top + radius {
+                    top + radius - y
+                } else if y > bottom - radius {
+                    y - (bottom - radius)
+                } else {
+                    0.
+                };
+                let inset = if corner > 0. {
+                    radius
+                        - (radius * radius - corner.min(radius).powi(2))
+                            .max(0.)
+                            .sqrt()
+                } else {
+                    0.
+                };
+                let (from, to) = (left + inset, right - inset);
+                for col in 0..w {
+                    let p = &mut pixels[row * w + col];
+                    let x = col as f32 + 0.5;
+                    let coverage = (x - from + 0.5)
+                        .clamp(0., 1.)
+                        .min((to - x + 0.5).clamp(0., 1.))
+                        * vertical.max(0.);
+                    if coverage < 1. {
+                        p.a = (p.a as f32 * coverage).round() as u8;
+                        if p.a == 0 {
+                            *p = slint::Rgba8Pixel::new(0, 0, 0, 0);
+                        }
+                    }
+                }
+            }
+        }
+        let page = slint::Rgba8Pixel::new(250, 240, 220, 255);
+        for (w, h, source, frame) in [
+            (
+                851usize,
+                635usize,
+                (680.8f32, 508.),
+                [52.29f32, 4., 675.41, 503.],
+            ),
+            (300, 200, (240., 160.), [10.4, 3.7, 220.1, 150.2]),
+            (64, 64, (64., 64.), [0., 0., 64., 64.]),
+        ] {
+            let mut fast = SharedPixelBuffer::<slint::Rgba8Pixel>::new(w as u32, h as u32);
+            fast.make_mut_slice().iter_mut().for_each(|p| *p = page);
+            let mut expected = fast.as_slice().to_vec();
+            clear_outside_frame(&mut fast, source.0, source.1, frame);
+            reference(
+                &mut expected,
+                w,
+                h,
+                (w as f32 / source.0, h as f32 / source.1),
+                frame,
+            );
+            assert!(fast.as_slice() == expected.as_slice(), "{w}x{h}");
+        }
     }
     #[test]
     fn page_input_accepts_local_digits_and_checks_bounds() {

@@ -1,6 +1,6 @@
 [package]
 name = "quran-slint-reader-prototype"
-version = "0.18.0"
+version = "0.19.2"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
@@ -17,6 +17,8 @@ serde_json = "1"
 unicode-normalization = "0.1"
 html-escape = "0.2"
 harfrust = "=0.14.0"
+skrifa = "0.44"
+tiny-skia = "0.12"
 windows-numerics = "0.3"
 windows-core = "=0.62.2"
 windows-future = "=0.3.2"
@@ -42,6 +44,20 @@ opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# The page renderer's libraries are compiled for speed, the rest for size.
+# Size-optimised tiny-skia skips the inlining and vectorisation its pixel
+# loops rely on: spreads drew about twice as slowly as at opt-level 2.
+[profile.release.package.tiny-skia]
+opt-level = 3
+[profile.release.package.tiny-skia-path]
+opt-level = 3
+[profile.release.package.harfrust]
+opt-level = 3
+[profile.release.package.skrifa]
+opt-level = 3
+[profile.release.package.read-fonts]
+opt-level = 3
 
 # For trying changes while developing only: `cargo build --profile fast`.
 # The same code, compiled across all processor threads without link-time
