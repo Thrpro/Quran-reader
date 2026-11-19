@@ -35,7 +35,7 @@ SignPath Foundation provides free code signing certificates for open-source proj
    >
    > Every signed release is built by GitHub Actions from this repository. Signing requests are approved by hand.
    >
-   > **Privacy:** this program does not send any information to other networked systems, except to stream or download the recitation you choose from the recitation providers named in the app.
+   > **Privacy:** this program does not send any information to other networked systems, except to stream or download the recitations and tafsir books you choose from the providers named in [PRIVACY.md](https://github.com/Thrpro/Quran-reader/blob/main/PRIVACY.md).
 
 3. **In SignPath**, once your organization exists:
    - connect GitHub as the trusted build system for the project (SignPath's GitHub integration);
