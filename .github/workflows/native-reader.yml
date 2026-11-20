@@ -76,6 +76,17 @@ jobs:
         working-directory: ${{ env.READER }}
         run: cargo clippy --release --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings
 
+      # Native tests read the Quran metadata from data/ at the repository root,
+      # as in the development tree. Here it lives in public-qul/data; a junction
+      # exposes it there without copying or changing any file.
+      - name: Expose the Quran data for the native tests
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\data")) {
+            New-Item -ItemType Junction -Path "$env:GITHUB_WORKSPACE\data" -Target "$env:GITHUB_WORKSPACE\public-qul\data" | Out-Null
+          }
+          Get-Item "$env:GITHUB_WORKSPACE\data\qul\processed\surahs.json" | Out-Null
+
       - name: Test
         working-directory: ${{ env.READER }}
         run: cargo test --release --locked --target x86_64-pc-windows-msvc -- --test-threads=1

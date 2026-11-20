@@ -3162,7 +3162,11 @@ fn run() -> Result<()> {
                     0 => winit::window::ResizeDirection::West,
                     1 => winit::window::ResizeDirection::East,
                     2 => winit::window::ResizeDirection::North,
-                    _ => winit::window::ResizeDirection::South,
+                    3 => winit::window::ResizeDirection::South,
+                    4 => winit::window::ResizeDirection::NorthWest,
+                    5 => winit::window::ResizeDirection::NorthEast,
+                    6 => winit::window::ResizeDirection::SouthWest,
+                    _ => winit::window::ResizeDirection::SouthEast,
                 };
                 ui.window().with_winit_window(|window| {
                     let _ = window.drag_resize_window(direction);
@@ -3775,12 +3779,18 @@ fn run() -> Result<()> {
                     move || {
                         if let Some(ui) = weak.upgrade() {
                             ui.set_study_closing(false);
+                            let mut cleared = false;
                             if ui.get_panel() != "study" {
-                                state.borrow_mut().selection = None;
+                                cleared = state.borrow_mut().selection.take().is_some();
                                 ui.set_study_body("".into());
                             }
-                            // A gliding book requests its own render when it lands.
-                            if !ui.get_book_sliding() {
+                            // A gliding book requests its own render when it lands,
+                            // but only when its raster is the wrong size: one that
+                            // already fits lands without a redraw. A cleared
+                            // highlight is redrawn now; the glide maps a raster
+                            // arriving mid-way onto the moving book, so the
+                            // highlight no longer outlives the panel by seconds.
+                            if !ui.get_book_sliding() || cleared {
                                 request_render(&ui, &state, &queue);
                             }
                         }

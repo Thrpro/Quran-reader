@@ -1,6 +1,6 @@
 [package]
 name = "quran-slint-reader-prototype"
-version = "0.19.2"
+version = "0.19.3"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
