@@ -1435,9 +1435,16 @@ export component ReaderWindow inherits Window {
    }
   }
  }
- // Window resize edges. Each is pinned to its side: without x and y an element is centred.
- Rectangle { x: 0px; y: 0px; width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
- Rectangle { x: root.width - 4px; y: 0px; width: 4px; height: root.height; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
- Rectangle { x: 0px; y: 0px; width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
- Rectangle { x: 0px; y: root.height - 4px; width: root.width; height: 4px; TouchArea { pointer-event(e) => { if e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
+ // Window resize edges and corners, with the matching resize cursors, while the
+ // window is neither maximized nor full screen. Each is pinned to its side:
+ // without x and y an element is centred. Corners come last so they win where
+ // they overlap an edge.
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 6px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: root.width; height: 5px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 6px; width: root.width; height: 6px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(4); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(5); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(6); } } } }
+ if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(7); } } } }
 }
