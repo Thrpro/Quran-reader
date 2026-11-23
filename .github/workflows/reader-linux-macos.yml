@@ -1,0 +1,256 @@
+name: Reader on Linux and macOS
+
+# Builds, tests and packages the Rust + Slint reader on Linux and macOS, where
+# it draws with the portable renderer and plays and downloads with the
+# portable recitation engine and tafsir library (experiments/slint-reader/PORTING.md).
+# - Pull requests that touch the reader: build and test only.
+# - Run manually, or push a tag such as v1.0.0: also package an AppImage, a
+#   .deb and a .tar.gz for Linux and a .dmg for macOS (installer/unix/package.py),
+#   and (for tags) attach them to the draft GitHub release that the Windows
+#   workflow also uses.
+# macOS signing is optional: without the secrets below the app is signed ad hoc
+# and macOS asks people to confirm it on first launch. With them it is signed
+# with a Developer ID and notarized:
+#   MACOS_CERTIFICATE           Developer ID Application certificate (.p12), base64
+#   MACOS_CERTIFICATE_PASSWORD  its password
+#   MACOS_SIGN_IDENTITY         e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   for notarization (optional)
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'experiments/slint-reader/**'
+      - 'windows/QuranMushaf.Native/**'
+      - '.github/workflows/reader-linux-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  READER: experiments/slint-reader
+  # Pinned AppImage tools: appimagetool 1.9.1 and the static type2 runtime
+  # 20251108, which needs no libfuse2 on the user's system.
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+  RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+            rust-target: x86_64-unknown-linux-gnu
+          - os: macos-15
+            name: macos
+            rust-target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: write   # only used to attach files to a draft release for tags
+    env:
+      PACKAGE: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt --no-self-update
+          rustup default 1.99.0
+
+      # Fonts are found through fontconfig; windows open through Wayland or X11;
+      # sound plays through ALSA (which PipeWire and PulseAudio also serve).
+      - name: Install the Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
+            desktop-file-utils
+
+      - name: Read the version and keep build-machine paths out of the executable
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$READER/Cargo.toml" | head -1)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version." >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          home="${CARGO_HOME:-$HOME/.cargo}"
+          printf 'CARGO_ENCODED_RUSTFLAGS=--remap-path-prefix=%s=.\x1f--remap-path-prefix=%s=cargo\n' \
+            "$GITHUB_WORKSPACE" "$home" >> "$GITHUB_ENV"
+          # The macOS executable runs on macOS 11 and later (its Info.plist says so too).
+          if [ "$RUNNER_OS" = macOS ]; then
+            echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          fi
+          echo "Version $version"
+
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.READER }}
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        working-directory: ${{ env.READER }}
+        run: cargo clippy --release --locked --all-targets -- -D warnings
+
+      # As on Windows: the tests read the Quran metadata from data/ at the
+      # repository root, which here is public-qul/data.
+      - name: Expose the Quran data for the tests
+        run: |
+          [ -e "$GITHUB_WORKSPACE/data" ] || ln -s public-qul/data "$GITHUB_WORKSPACE/data"
+          test -f "$GITHUB_WORKSPACE/data/qul/processed/surahs.json"
+
+      - name: Test
+        working-directory: ${{ env.READER }}
+        run: cargo test --release --locked -- --test-threads=1
+
+      - name: Build
+        working-directory: ${{ env.READER }}
+        run: cargo build --release --locked
+
+      - name: Fetch the pinned AppImage tools
+        if: env.PACKAGE == 'true' && runner.os == 'Linux'
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          curl -fsSL --proto '=https' -o appimagetool "$APPIMAGETOOL_URL"
+          curl -fsSL --proto '=https' -o runtime "$RUNTIME_URL"
+          printf '%s  appimagetool\n%s  runtime\n' "$APPIMAGETOOL_SHA256" "$RUNTIME_SHA256" | sha256sum -c -
+
+      - name: Prepare macOS signing
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERTIFICATE" ] || [ -z "$MACOS_SIGN_IDENTITY" ]; then
+            echo "No Developer ID certificate: the app is signed ad hoc."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "MACOS_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+            xcrun notarytool store-credentials quran-reader-notary --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$keychain"
+            echo "MACOS_NOTARY_PROFILE=quran-reader-notary" >> "$GITHUB_ENV"
+          fi
+
+      # Quran resources come from the pinned Windows release ZIP and are checked
+      # file by file; licenses get a notice for every shipped crate.
+      - name: Package
+        if: env.PACKAGE == 'true'
+        run: |
+          cd "$READER"
+          cargo metadata --format-version 1 --locked --filter-platform "${{ matrix.rust-target }}" \
+            > "$RUNNER_TEMP/metadata.json"
+          tools=""
+          if [ "$RUNNER_OS" = Linux ]; then
+            tools="--appimagetool $RUNNER_TEMP/tools/appimagetool --runtime $RUNNER_TEMP/tools/runtime"
+          fi
+          python3 installer/unix/package.py --target "${{ matrix.name }}" \
+            --exe target/release/quran-slint-reader-prototype --version "$VERSION" \
+            --out "$RUNNER_TEMP/package" --metadata "$RUNNER_TEMP/metadata.json" $tools
+
+      - name: Check the Linux packages
+        if: env.PACKAGE == 'true' && runner.os == 'Linux'
+        run: |
+          cd "$RUNNER_TEMP/package/release"
+          deb="quran-mushaf-reader_${VERSION}_amd64.deb"
+          dpkg-deb --info "$deb"
+          sudo apt-get install -y "./$deb"
+          test -x /usr/bin/quran-mushaf-reader
+          python3 /usr/share/quran-mushaf-reader/verify_resources.py /usr/share/quran-mushaf-reader
+          desktop-file-validate /usr/share/applications/quran-mushaf-reader.desktop
+          appimage="QuranMushafReader-${VERSION}-x86_64.AppImage"
+          chmod +x "$appimage"
+          "./$appimage" --appimage-extract > /dev/null
+          test -x squashfs-root/usr/bin/quran-mushaf-reader
+          python3 squashfs-root/usr/share/quran-mushaf-reader/verify_resources.py \
+            squashfs-root/usr/share/quran-mushaf-reader
+          rm -rf squashfs-root
+          sha256sum -c SHA256SUMS-linux.txt
+
+      - name: Check the macOS package
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        run: |
+          cd "$RUNNER_TEMP/package/release"
+          dmg="QuranMushafReader-${VERSION}-macos-arm64.dmg"
+          hdiutil verify "$dmg"
+          mount=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | cut -f3-)
+          app="$mount/Quran Mushaf Reader.app"
+          codesign --verify --strict --verbose=2 "$app"
+          test -x "$app/Contents/MacOS/quran-mushaf-reader"
+          otool -L "$app/Contents/MacOS/quran-mushaf-reader"
+          # Only libraries that come with macOS.
+          if otool -L "$app/Contents/MacOS/quran-mushaf-reader" | tail -n +2 |
+              grep -vE '^[[:space:]]+(/System/Library/|/usr/lib/)'; then
+            echo "The app links a library that macOS does not provide." >&2
+            exit 1
+          fi
+          hdiutil detach "$mount"
+          shasum -a 256 -c SHA256SUMS-macos.txt
+
+      - name: Keep the release files
+        if: env.PACKAGE == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: quran-mushaf-reader-${{ env.VERSION }}-${{ matrix.name }}
+          path: ${{ runner.temp }}/package/release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      # Shared with the Windows workflow: whichever finishes first creates the
+      # draft; a published release is never changed.
+      - name: Attach to a draft release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -- "$RUNNER_TEMP"/package/release/*
+          for attempt in 1 2 3; do
+            if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+              if [ "$draft" = true ]; then
+                gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "$@"
+              else
+                echo "Release $GITHUB_REF_NAME is already published; files are in the workflow artifact only."
+              fi
+              exit 0
+            fi
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Quran Mushaf Reader $VERSION" \
+              --notes "Built by GitHub Actions from $GITHUB_SHA. Review, add release notes and publish." \
+              "$@" && exit 0
+            sleep 15
+          done
+          exit 1

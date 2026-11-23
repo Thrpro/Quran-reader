@@ -1,6 +1,6 @@
 [package]
 name = "quran-slint-reader-prototype"
-version = "0.19.3"
+version = "0.20.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT"
@@ -9,6 +9,9 @@ build = "build.rs"
 
 [features]
 qa = []
+# Windows only: play recitations through the native Windows media engine
+# instead of the portable one in src/recitation.
+native-audio = []
 
 [dependencies]
 slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-skia", "accessibility", "compat-1-18", "unstable-winit-030"] }
@@ -19,7 +22,20 @@ html-escape = "0.2"
 harfrust = "=0.14.0"
 skrifa = "0.44"
 tiny-skia = "0.12"
+png = "0.18"
+# The portable recitation engine (src/recitation): MP3 decoding, sound output
+# (WASAPI, CoreAudio, ALSA), HTTPS downloads and file hashes.
+symphonia = { version = "0.6", default-features = false, features = ["mp3", "id3v1", "id3v2"] }
+cpal = "0.18"
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+sha2 = "0.11"
+# Plain 2-D matrix types used by the shared page-turn geometry; they build on
+# every platform.
 windows-numerics = "0.3"
+
+# Windows: DirectWrite fallback text, Windows media playback and WinHTTP
+# downloads, shared with the protected native app.
+[target.'cfg(windows)'.dependencies]
 windows-core = "=0.62.2"
 windows-future = "=0.3.2"
 windows = { version = "0.62", features = [
@@ -34,7 +50,10 @@ windows = { version = "0.62", features = [
   "Win32_UI_Shell", "Win32_UI_Controls_RichEdit", "Win32_UI_HiDpi", "Win32_UI_Controls",
   "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"
 ] }
-png = "0.18"
+
+# Linux and macOS: the local time for the page clock, file locks and flags.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [build-dependencies]
 slint-build = "=1.18.1"

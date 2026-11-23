@@ -1,12 +1,15 @@
-//! Read-only adapter around the reader's unchanged DirectWrite/Direct2D code.
-//! All COM resources live on the thread that creates Engine. Only owned pixels
-//! and ordinary strings leave that thread; no HWND, COM pointer or profile does.
+//! Read-only adapter around the page renderers: the portable renderer on every
+//! platform, and on Windows also the reader's unchanged DirectWrite/Direct2D
+//! code. All renderer resources live on the thread that creates Engine. Only
+//! owned pixels and ordinary strings leave that thread.
+#[cfg(windows)]
+use crate::render::{BookView, Renderer};
 use crate::{
     app_core::{self, Rect, SearchKind},
     data::{Resources, Result},
-    render::{BookView, Renderer},
 };
 use std::{path::PathBuf, sync::Arc, time::Instant};
+#[cfg(windows)]
 use windows::Win32::{
     Graphics::DirectWrite::DWRITE_HIT_TEST_METRICS,
     Graphics::Imaging::GUID_WICPixelFormat32bppPBGRA,
@@ -17,7 +20,9 @@ use windows::Win32::{
 // checks the device's own bitmap limit before creating one.
 const MAX_PIXEL_BYTES: usize = 64 * 1024 * 1024;
 
+#[cfg(windows)]
 struct Apartment;
+#[cfg(windows)]
 impl Drop for Apartment {
     fn drop(&mut self) {
         // Engine is created and destroyed by its owning worker. Renderer and
@@ -28,9 +33,11 @@ impl Drop for Apartment {
 
 pub struct Engine {
     resources: Resources,
+    #[cfg(windows)]
     renderer: Renderer,
     /// The portable renderer (HarfRust and tiny-skia), used unless the app is
-    /// started with --native-text; then the native DirectWrite renderer draws.
+    /// started with --native-text on Windows; then DirectWrite draws. Elsewhere
+    /// it is always present.
     portable: Option<crate::portable_render::Renderer>,
     portable_visible: Vec<crate::portable_render::VisibleLine>,
     image_source: Rect,
@@ -38,6 +45,7 @@ pub struct Engine {
     hover_size: (u32, u32),
     hover_theme: u32,
     hover_cached: Option<((u32, u32), Arc<HoverResult>)>,
+    #[cfg(windows)]
     _apartment: Apartment,
 }
 
@@ -56,6 +64,7 @@ pub struct Rendered {
 }
 pub struct Prepared {
     pub raster: Rendered,
+    #[cfg(windows)]
     visible: Vec<crate::render::InkLine>,
     portable_visible: Option<Vec<crate::portable_render::VisibleLine>>,
     style: RenderStyle,
@@ -98,15 +107,24 @@ pub struct RenderStyle {
 impl Engine {
     pub fn open(root: PathBuf) -> Result<Self> {
         let began = std::time::Instant::now();
-        unsafe { RoInitialize(RO_INIT_SINGLETHREADED)? };
+        #[cfg(windows)]
+        unsafe {
+            RoInitialize(RO_INIT_SINGLETHREADED)?
+        };
+        #[cfg(windows)]
         let apartment = Apartment;
         let mut resources = Resources::open(root.canonicalize()?)?;
         let resources_ms = began.elapsed().as_secs_f64() * 1000.;
+        #[cfg(windows)]
         let mut renderer = Renderer::new(&mut resources)?;
         let native_ms = began.elapsed().as_secs_f64() * 1000. - resources_ms;
-        // Original natural script; a user profile is deliberately never read.
-        renderer.contextual = false;
-        renderer.show_clock = false;
+        #[cfg(windows)]
+        {
+            // Original natural script; a user profile is deliberately never read.
+            renderer.contextual = false;
+            renderer.show_clock = false;
+        }
+        #[cfg(windows)]
         let portable = if std::env::args().any(|a| a == "--native-text") {
             None
         } else {
@@ -118,6 +136,9 @@ impl Engine {
                 }
             }
         };
+        // Without DirectWrite the portable renderer is the only one.
+        #[cfg(not(windows))]
+        let portable = Some(crate::portable_render::Renderer::new(&mut resources)?);
         if crate::portable_render::timing_enabled() {
             eprintln!(
                 "[timing] engine open {:.1} ms: resources {resources_ms:.1}, DirectWrite {native_ms:.1}, portable {:.1}",
@@ -127,6 +148,7 @@ impl Engine {
         }
         Ok(Self {
             resources,
+            #[cfg(windows)]
             renderer,
             portable,
             portable_visible: Vec::new(),
@@ -135,6 +157,7 @@ impl Engine {
             hover_size: (0, 0),
             hover_theme: 0,
             hover_cached: None,
+            #[cfg(windows)]
             _apartment: apartment,
         })
     }
@@ -172,11 +195,17 @@ impl Engine {
         self.hover_cached = None;
         match prepared.portable_visible {
             Some(visible) => self.portable_visible = visible,
+            #[cfg(windows)]
             None => self.renderer.visible = prepared.visible,
+            #[cfg(not(windows))]
+            None => {}
         }
-        self.renderer.contextual = prepared.style.contextual;
-        self.renderer.show_clock = prepared.style.show_clock;
-        self.renderer.clock_24 = prepared.style.clock_24;
+        #[cfg(windows)]
+        {
+            self.renderer.contextual = prepared.style.contextual;
+            self.renderer.show_clock = prepared.style.show_clock;
+            self.renderer.clock_24 = prepared.style.clock_24;
+        }
         r
     }
 
@@ -212,9 +241,12 @@ impl Engine {
         {
             return Err("Reader render request is outside prototype limits".into());
         }
-        self.renderer.contextual = style.contextual;
-        self.renderer.show_clock = style.show_clock;
-        self.renderer.clock_24 = style.clock_24;
+        #[cfg(windows)]
+        {
+            self.renderer.contextual = style.contextual;
+            self.renderer.show_clock = style.show_clock;
+            self.renderer.clock_24 = style.clock_24;
+        }
         let drawing_width = if style.single_page {
             width_dip.min(649.)
         } else {
@@ -255,6 +287,7 @@ impl Engine {
             )?;
             let interactive_lines = raster.visible.len();
             return Ok(Prepared {
+                #[cfg(windows)]
                 visible: Vec::new(),
                 portable_visible: Some(raster.visible),
                 style,
@@ -271,12 +304,32 @@ impl Engine {
                 },
             });
         }
+        #[cfg(windows)]
+        return self.prepare_native(page, area, scale, arabic, selection, style, geometry, began);
+        #[cfg(not(windows))]
+        Err("The portable renderer is not open".into())
+    }
+
+    /// The DirectWrite page, drawn when the app is started with --native-text.
+    #[cfg(windows)]
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_native(
+        &mut self,
+        page: u32,
+        area: Rect,
+        scale: f32,
+        arabic: bool,
+        selection: Option<(u32, u32)>,
+        style: RenderStyle,
+        geometry: app_core::BookGeometry,
+        began: Instant,
+    ) -> Result<Prepared> {
         let raster = self.renderer.raster_book_with_aa(
             &mut self.resources,
             BookView {
                 page,
                 area,
-                palette: crate::page_animation::palette(style.theme),
+                palette: crate::page_animation::palette(style.theme).into(),
                 selection,
                 recitation: style.recitation,
                 opening: style.opening,
@@ -336,7 +389,10 @@ impl Engine {
         if self.portable.is_some() {
             return crate::portable_render::hit(&self.portable_visible, x, y);
         }
-        self.renderer.hit(x, y)
+        #[cfg(windows)]
+        return self.renderer.hit(x, y);
+        #[cfg(not(windows))]
+        None
     }
 
     /// Actual native verse bounds, local to the transferred book image.
@@ -365,6 +421,8 @@ impl Engine {
             result.truncate(64);
             return result;
         }
+        // DirectWrite lines, only when it drew the page (--native-text).
+        #[cfg(windows)]
         for line in &self.renderer.visible {
             if let Some(regions) = &line.hits {
                 let mut selected = regions.iter().filter(|(_, k)| *k == key);
@@ -427,9 +485,7 @@ impl Engine {
         let sx = width as f32 / self.image_source.w;
         let sy = height as f32 / self.image_source.h;
         let palette = crate::page_animation::palette(self.hover_theme);
-        let rgb = |c: windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F| {
-            [c.r, c.g, c.b].map(|v| v * 255.)
-        };
+        let rgb = |c: crate::theme::Color| [c.r, c.g, c.b].map(|v| v * 255.);
         let (paper, ink, fill) = (rgb(palette.paper), rgb(palette.ink), rgb(palette.highlight));
         let mut patches = Vec::new();
         for r in &regions {
@@ -487,6 +543,8 @@ impl Engine {
             }
             return None;
         }
+        // DirectWrite lines, only when it drew the page (--native-text).
+        #[cfg(windows)]
         for line in self.renderer.visible.iter().take(32) {
             if let Some(regions) = &line.hits {
                 for (rect, expected) in regions.iter().take(128) {

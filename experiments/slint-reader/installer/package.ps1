@@ -7,7 +7,7 @@ pinned by its SHA-256, and are checked again against the resource manifest,
 whose own SHA-256 is pinned too. Nothing in Resources is modified.
 
 Used by .github/workflows/native-reader.yml and runnable locally:
-  ./package.ps1 -Exe <built exe> -Version 0.19.3 -OutDir <folder>
+  ./package.ps1 -Exe <built exe> -Version 0.20.0 -OutDir <folder> -Metadata <cargo metadata json>
 #>
 param(
     [Parameter(Mandatory)] [string] $Exe,
@@ -20,6 +20,9 @@ param(
     [string] $ManifestSha256 = '378e25fde0bbbb24e185393cbc16a704c56dd10b47391cfaae2347e9e90ccc8a',
     [string] $RedistDir = '',
     [string] $Iscc = '',
+    # cargo metadata (--filter-platform x86_64-pc-windows-msvc) for the built exe:
+    # license notices are added for crates newer than the pinned inventory.
+    [string] $Metadata = '',
     # Stop after the app folder, for example to sign the executable first.
     [switch] $AppOnly,
     # Reuse an app folder made by an earlier -AppOnly run (with a signed executable).
@@ -88,6 +91,12 @@ if (-not $FromAppFolder) {
         Copy-Item -LiteralPath (Join-Path $RedistDir $dll) -Destination $app
     }
     Copy-Item -LiteralPath (Join-Path $here 'Microsoft-Visual-C++-Runtime.txt') -Destination (Join-Path $app 'licenses')
+    if ($Metadata) {
+        & python (Join-Path $here 'add_licenses.py') $Metadata (Join-Path $app 'licenses')
+        if ($LASTEXITCODE -ne 0) { throw 'Adding license notices failed.' }
+        & python (Join-Path $here 'check_licenses.py') $Metadata (Join-Path $app 'licenses\dependency-inventory.json')
+        if ($LASTEXITCODE -ne 0) { throw 'A shipped crate has no license notice.' }
+    }
     (Get-Content -LiteralPath (Join-Path $here 'START-HERE.md') -Raw).Replace('{VERSION}', $Version) |
         Set-Content -LiteralPath (Join-Path $app 'START-HERE.md') -Encoding utf8 -NoNewline
     Write-Host "App folder ready: $app"

@@ -1,20 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![deny(unsafe_op_in_unsafe_fn)]
+// Shared verbatim with the protected native Windows app. The ones that call
+// Windows directly have Linux and macOS counterparts in src/portable/, with the
+// same names and the parts of the interface this reader uses.
+#[cfg(windows)]
 #[allow(dead_code)]
 #[allow(clippy::collapsible_if)] // Shared production code retains Rust 1.85 syntax.
 #[path = "../../../windows/QuranMushaf.Native/src/audio.rs"]
 mod audio;
+#[cfg(not(windows))]
+#[path = "portable/audio.rs"]
+mod audio;
 mod audio_bridge;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[allow(clippy::collapsible_if)] // Shared production code retains Rust 1.85 syntax.
 #[path = "../../../windows/QuranMushaf.Native/src/audio_cache.rs"]
 mod audio_cache;
+#[cfg(windows)]
 mod audio_qa;
+mod audio_types;
 mod controls;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/file_integrity.rs"]
 mod file_integrity;
+#[cfg(windows)]
 mod gpu_choice;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/http_security.rs"]
 mod http_security;
@@ -24,24 +37,35 @@ mod listening_layout;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/mp3.rs"]
 mod mp3;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/owned_file.rs"]
+mod owned_file;
+#[cfg(not(windows))]
+#[path = "portable/owned_file.rs"]
 mod owned_file;
 mod page_animation;
 mod player_qa;
 mod preferences;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/profile_file.rs"]
 mod profile_file;
+#[cfg(not(windows))]
+#[path = "portable/profile_file.rs"]
+mod profile_file;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/range_stream.rs"]
 mod range_stream;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/scoped_store.rs"]
 mod scoped_store;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/timed_audio.rs"]
 mod timed_audio;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/timed_store.rs"]
 mod timed_store;
@@ -55,6 +79,7 @@ mod app_core;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/data.rs"]
 mod data;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/outlines.rs"]
 mod outlines;
@@ -66,20 +91,44 @@ mod page_turn;
 #[path = "../../../windows/QuranMushaf.Native/src/quran_shape.rs"]
 mod quran_shape;
 mod reader;
+// The recitation engine on every platform (see recitation/mod.rs).
+#[cfg_attr(feature = "native-audio", allow(dead_code, unused_imports))]
+mod recitation;
+#[cfg(windows)]
 #[allow(dead_code)]
 #[allow(clippy::collapsible_if)]
 #[path = "../../../windows/QuranMushaf.Native/src/render.rs"]
 mod render;
+#[cfg(not(windows))]
+#[path = "portable/render.rs"]
+mod render;
 mod shortcuts;
+mod theme;
 mod turn_queue;
 // The portable page renderer: HarfRust shaping, Skrifa outlines, tiny-skia.
 mod portable_outlines;
 mod portable_render;
 mod portable_text;
 // Complete tafsir books downloaded from Quran.com into the profile.
+#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/tafsir_library.rs"]
 mod tafsir_library;
+// Linux and macOS: the same library, generated from the native file by
+// tools/port_tafsir_library.py with portable HTTPS and file calls.
+#[cfg(not(windows))]
+#[allow(dead_code)]
+#[path = "portable/tafsir_library.rs"]
+mod tafsir_library;
+// On Windows, tests compare the Linux and macOS copy of the reciter list with
+// the native one, and run the tafsir library's tests on the portable copy.
+#[cfg(all(test, windows))]
+#[path = "portable/audio.rs"]
+mod portable_audio_list;
+#[cfg(all(test, windows))]
+#[allow(dead_code)]
+#[path = "portable/tafsir_library.rs"]
+mod portable_tafsir_library;
 
 use reader::{Engine, Rendered, SearchResult};
 use serde_json::{Value, json};
@@ -786,6 +835,11 @@ fn page_number(value: &str) -> Option<u32> {
         .collect();
     ascii.parse::<u32>().ok().filter(|n| (1..=604).contains(n))
 }
+#[cfg(not(windows))]
+fn motion_preference() -> bool {
+    true
+}
+#[cfg(windows)]
 fn motion_preference() -> bool {
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -802,11 +856,21 @@ fn resource_root() -> Result<PathBuf> {
             PathBuf::from(args.get(index + 1).ok_or("Missing resources path")?).canonicalize()?,
         );
     }
-    let local = std::env::current_exe()?
+    let beside = std::env::current_exe()?
         .parent()
         .ok_or("Executable parent missing")?
-        .join("Resources");
-    if local.is_dir() {
+        .to_path_buf();
+    // Next to the app everywhere; then where an installed Linux app keeps its
+    // data (bin/../share/quran-mushaf-reader) or a macOS app bundle its
+    // resources (Contents/MacOS/../Resources/Mushaf).
+    let places = [
+        beside.join("Resources"),
+        #[cfg(all(unix, not(target_os = "macos")))]
+        beside.join("../share/quran-mushaf-reader/Resources"),
+        #[cfg(target_os = "macos")]
+        beside.join("../Resources/Mushaf"),
+    ];
+    if let Some(local) = places.iter().find(|place| place.is_dir()) {
         return Ok(local.canonicalize()?);
     }
     // Developer fallback reads only the already verified native package. Release
@@ -819,7 +883,7 @@ fn resource_root() -> Result<PathBuf> {
     }
     #[cfg(not(debug_assertions))]
     {
-        Err("The Resources folder was not found beside the application. Keep it next to the .exe, or pass --resources <folder>.".into())
+        Err("The Resources folder was not found beside the application. Keep it next to the app, or pass --resources <folder>.".into())
     }
 }
 fn png(path: &Path, bytes: &[u8], width: u32, height: u32) -> Result<()> {
@@ -2015,9 +2079,7 @@ impl Qa {
                     {
                         return Err("Fullscreen exit did not restore native window".into());
                     }
-                    use winit::platform::windows::IconExtWindows;
-                    winit::window::Icon::from_resource(1, None)
-                        .map_err(|e| format!("Missing embedded application icon: {e}"))?;
+                    window_icon().ok_or("Missing embedded application icon")?;
                     json_file(
                         &self.output.join("window-qa.json"),
                         &json!({"passed":true,"nativeFullscreenEnterExit":true,"embeddedIconReadable":true}),
@@ -3002,7 +3064,22 @@ fn run() -> Result<()> {
             args.get(index + 2)
                 .ok_or("Missing original audio fixture directory")?,
         );
+        #[cfg(windows)]
         return audio_qa::run(&out, &fixture);
+        #[cfg(not(windows))]
+        return Err(format!(
+            "Audio verification needs the Windows recitation engine ({} {})",
+            out.display(),
+            fixture.display()
+        )
+        .into());
+    }
+    if let Some(index) = args.iter().position(|arg| arg == "--qa-recitation") {
+        let out = PathBuf::from(
+            args.get(index + 1)
+                .ok_or("Missing recitation verification output")?,
+        );
+        return recitation::qa::run(&out);
     }
     let qa_output = args
         .iter()
@@ -3030,7 +3107,13 @@ fn run() -> Result<()> {
         let fixture = PathBuf::from(args.get(i + 2).ok_or("Missing original audio fixture")?);
         fs::create_dir(out)?;
         let fixture_out = out.join("verified-fixture");
+        #[cfg(windows)]
         let proof = audio_qa::seed(&fixture_out, &fixture)?;
+        #[cfg(not(windows))]
+        let proof: Vec<Value> = {
+            let _ = (&fixture_out, &fixture);
+            Err("Player verification needs the Windows recitation engine")?
+        };
         json_file(
             &out.join("audio-fixture.json"),
             &json!({"files":proof,"source":fixture,"copiedProfile":fixture_out.join("profile")}),
@@ -3080,7 +3163,23 @@ fn run() -> Result<()> {
             None => return Err("--turn-ms needs a number of milliseconds".into()),
         }
     }
-    slint::BackendSelector::new()
+    let backend = slint::BackendSelector::new();
+    // Linux desktops match a window to its launcher entry (and icon) by this
+    // name, the same as the .desktop file's.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let backend = backend.with_winit_window_attributes_hook(|attributes| {
+        let attributes = winit::platform::wayland::WindowAttributesExtWayland::with_name(
+            attributes,
+            LINUX_APP_ID,
+            "",
+        );
+        winit::platform::x11::WindowAttributesExtX11::with_name(
+            attributes,
+            LINUX_APP_ID,
+            LINUX_APP_ID,
+        )
+    });
+    backend
         .backend_name("winit".into())
         .renderer_name(
             if software_rendering {
@@ -3893,8 +3992,7 @@ fn run() -> Result<()> {
     ui.show()?;
     startup_mark("window shown");
     ui.window().with_winit_window(|window| {
-        use winit::platform::windows::IconExtWindows;
-        if let Ok(icon) = winit::window::Icon::from_resource(1, None) {
+        if let Some(icon) = window_icon() {
             window.set_window_icon(Some(icon));
         }
     });
@@ -3956,6 +4054,29 @@ fn run() -> Result<()> {
     }
     Ok(())
 }
+/// The window and taskbar icon: the .exe's own icon resource on Windows, the
+/// app's PNG elsewhere (macOS takes the Dock icon from the app bundle instead).
+#[cfg(windows)]
+fn window_icon() -> Option<winit::window::Icon> {
+    use winit::platform::windows::IconExtWindows;
+    winit::window::Icon::from_resource(1, None).ok()
+}
+#[cfg(not(windows))]
+fn window_icon() -> Option<winit::window::Icon> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/app.png")));
+    let mut reader = decoder.read_info().ok()?;
+    let mut rgba = vec![0; reader.output_buffer_size()?];
+    let frame = reader.next_frame(&mut rgba).ok()?;
+    if frame.color_type != png::ColorType::Rgba || frame.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    rgba.truncate(frame.buffer_size());
+    winit::window::Icon::from_rgba(rgba, frame.width, frame.height).ok()
+}
+/// The Linux desktop entry and window name: quran-mushaf-reader.desktop.
+#[cfg(all(unix, not(target_os = "macos")))]
+const LINUX_APP_ID: &str = "quran-mushaf-reader";
+
 /// A startup failure: release builds have no console, so show it in a dialog
 /// and keep the latest one in a small log beside the profile.
 fn startup_failed(error: &str) -> ! {
@@ -3972,6 +4093,12 @@ fn startup_failed(error: &str) -> ! {
             ),
         );
     }
+    #[cfg(windows)]
+    show_startup_failure(&text);
+    std::process::exit(1);
+}
+#[cfg(windows)]
+fn show_startup_failure(text: &str) {
     use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
     let message = windows::core::HSTRING::from(format!(
         "Quran Mushaf Reader could not start.\n\n{text}\n\nThe details are saved in SlintProfile\\startup-error.log next to the app.\n\nتعذّر تشغيل قارئ المصحف. التفاصيل محفوظة في الملف المذكور أعلاه."
@@ -3985,7 +4112,6 @@ fn startup_failed(error: &str) -> ! {
             MB_OK | MB_ICONERROR,
         );
     }
-    std::process::exit(1);
 }
 /// When the process started, for `QR_TIMING`.
 static LAUNCHED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
@@ -4003,9 +4129,12 @@ fn startup_mark(step: &str) {
 fn main() {
     LAUNCHED.get_or_init(Instant::now);
     let args: Vec<_> = std::env::args_os().collect();
+    #[cfg(windows)]
     if let Err(error) = gpu_choice::apply(&args) {
         startup_failed(&error.to_string());
     }
+    #[cfg(not(windows))]
+    let _ = &args;
     if let Err(error) = run() {
         startup_failed(&error.to_string());
     }
@@ -4173,5 +4302,46 @@ mod tests {
         };
         q.stop();
         assert!(q.next().is_none());
+    }
+}
+
+/// The Linux and macOS copies of the native lists must stay identical.
+#[cfg(all(test, windows))]
+mod portable_copies {
+    #[test]
+    fn reciter_list_matches_the_native_one() {
+        let copy = crate::portable_audio_list::RECITERS;
+        assert_eq!(copy.len(), crate::audio::RECITERS.len());
+        for (copy, native) in copy.iter().zip(crate::audio::RECITERS) {
+            assert_eq!(
+                (copy.english, copy.arabic, copy.path, copy.everyayah),
+                (native.english, native.arabic, native.path, native.everyayah)
+            );
+        }
+    }
+
+    #[test]
+    fn tafsir_book_list_matches_the_native_one() {
+        let copy = &crate::portable_tafsir_library::SOURCES;
+        assert_eq!(copy.len(), crate::tafsir_library::SOURCES.len());
+        for (copy, native) in copy.iter().zip(&crate::tafsir_library::SOURCES) {
+            assert_eq!(
+                (
+                    copy.id,
+                    copy.resource,
+                    copy.name_arabic,
+                    copy.name_english,
+                    copy.arabic
+                ),
+                (
+                    native.id,
+                    native.resource,
+                    native.name_arabic,
+                    native.name_english,
+                    native.arabic
+                )
+            );
+            assert_eq!(copy.download_issue(), native.download_issue());
+        }
     }
 }

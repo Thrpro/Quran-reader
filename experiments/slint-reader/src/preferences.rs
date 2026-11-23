@@ -7,17 +7,18 @@ use crate::{
     profile_file,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
 use std::{
     collections::BTreeSet,
     ffi::OsString,
     fs::{self, File, OpenOptions},
     io::Read,
     marker::PhantomData,
-    os::windows::ffi::OsStrExt,
-    os::windows::fs::OpenOptionsExt,
     path::{Component, Path, PathBuf},
     rc::Rc,
 };
+#[cfg(windows)]
 use windows::{
     Win32::{
         Foundation::{
@@ -202,10 +203,12 @@ struct Saved {
 }
 /// Mutex ownership belongs to a Windows thread. The marker prevents moving or
 /// sharing the profile to another thread and accidentally releasing elsewhere.
+#[cfg(windows)]
 struct ProfileOwner {
     handle: HANDLE,
     _thread_bound: PhantomData<Rc<()>>,
 }
+#[cfg(windows)]
 impl ProfileOwner {
     fn acquire(directory: &PinnedDirectory) -> Result<Self> {
         let mut identity = Vec::new();
@@ -238,11 +241,36 @@ impl ProfileOwner {
         }
     }
 }
+#[cfg(windows)]
 impl Drop for ProfileOwner {
     fn drop(&mut self) {
         unsafe {
             let _ = ReleaseMutex(self.handle);
             let _ = CloseHandle(self.handle);
+        }
+    }
+}
+/// Linux and macOS: an exclusive lock on the profile folder itself, released
+/// when the profile closes or the app exits. A second open of the folder
+/// conflicts even within this process, like the Windows mutex.
+#[cfg(not(windows))]
+struct ProfileOwner {
+    _lock: File,
+    _thread_bound: PhantomData<Rc<()>>,
+}
+#[cfg(not(windows))]
+impl ProfileOwner {
+    fn acquire(directory: &PinnedDirectory) -> Result<Self> {
+        let lock = File::open(directory.path())?;
+        match lock.try_lock() {
+            Ok(()) => Ok(Self {
+                _lock: lock,
+                _thread_bound: PhantomData,
+            }),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                Err("This Slint preview profile is already open in another owner".into())
+            }
+            Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
         }
     }
 }
@@ -264,11 +292,41 @@ fn parse_envelope(bytes: &[u8]) -> Result<Preferences> {
 }
 
 /// Portable namespace, separate from the native application's profile.
+#[cfg(windows)]
 pub fn default_profile_directory() -> Result<PathBuf> {
     Ok(std::env::current_exe()?
         .parent()
         .ok_or("The preview executable has no parent directory")?
         .join("SlintProfile"))
+}
+/// Linux and macOS install apps where users cannot write, so the profile goes
+/// in the user's application data folder, unless a SlintProfile folder already
+/// sits beside the app (a portable copy).
+#[cfg(not(windows))]
+pub fn default_profile_directory() -> Result<PathBuf> {
+    let beside = std::env::current_exe()?
+        .parent()
+        .ok_or("The preview executable has no parent directory")?
+        .join("SlintProfile");
+    if beside.is_dir() {
+        return Ok(beside);
+    }
+    let home = || -> Result<PathBuf> {
+        let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?);
+        if !home.is_absolute() {
+            return Err("HOME is not an absolute path".into());
+        }
+        Ok(home)
+    };
+    #[cfg(target_os = "macos")]
+    let data = home()?.join("Library/Application Support/Quran Mushaf Reader");
+    #[cfg(not(target_os = "macos"))]
+    let data = match std::env::var_os("XDG_DATA_HOME").map(PathBuf::from) {
+        Some(data) if data.is_absolute() => data,
+        _ => home()?.join(".local/share"),
+    }
+    .join("quran-mushaf-reader");
+    Ok(data)
 }
 impl Profile {
     /// Missing state gives defaults without writing. Parse/schema/size/ownership
@@ -411,13 +469,25 @@ fn keep_unreadable(directory: &Path, bytes: &[u8]) -> Result<PathBuf> {
     Err("Too many damaged settings files are kept already".into())
 }
 
-fn read_saved(path: &Path) -> Result<Option<Saved>> {
-    let mut file = match OpenOptions::new()
+/// Opens the file itself, never a link's target.
+fn open_unlinked(path: &Path) -> std::io::Result<File> {
+    #[cfg(windows)]
+    return OpenOptions::new()
         .read(true)
         .share_mode(1)
         .custom_flags(0x0020_0000) // FILE_FLAG_OPEN_REPARSE_POINT
-        .open(path)
+        .open(path);
+    #[cfg(not(windows))]
     {
+        use std::os::unix::fs::OpenOptionsExt;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+    }
+}
+fn read_saved(path: &Path) -> Result<Option<Saved>> {
+    let mut file = match open_unlinked(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
@@ -808,6 +878,8 @@ mod tests {
         fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();
     }
+    // Windows refuses to replace a file another program is reading.
+    #[cfg(windows)]
     #[test]
     fn active_target_reader_prevents_replacement_and_keeps_in_memory_value() {
         let root = folder();
