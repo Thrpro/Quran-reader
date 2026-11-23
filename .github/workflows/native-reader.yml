@@ -95,7 +95,9 @@ jobs:
         working-directory: ${{ env.READER }}
         run: cargo build --release --locked --target x86_64-pc-windows-msvc
 
-      - name: Check that every shipped crate has a license notice
+      # package.ps1 adds notices for crates newer than the pinned inventory
+      # (installer/add_licenses.py), then fails if any shipped crate has none.
+      - name: Assemble the app with a license notice for every shipped crate
         if: env.PACKAGE == 'true'
         shell: pwsh
         working-directory: ${{ env.READER }}
@@ -103,8 +105,7 @@ jobs:
           $reader = Join-Path $env:GITHUB_WORKSPACE 'experiments/slint-reader'
           cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc > "$env:RUNNER_TEMP\metadata.json"
           & "$reader/installer/package.ps1" -Exe "$reader/target/x86_64-pc-windows-msvc/release/quran-slint-reader-prototype.exe" `
-            -Version $env:VERSION -OutDir "$env:RUNNER_TEMP\package" -AppOnly
-          python "$reader/installer/check_licenses.py" "$env:RUNNER_TEMP\metadata.json" "$env:RUNNER_TEMP\package\Quran-Mushaf-Reader-$env:VERSION\licenses\dependency-inventory.json"
+            -Version $env:VERSION -OutDir "$env:RUNNER_TEMP\package" -AppOnly -Metadata "$env:RUNNER_TEMP\metadata.json"
 
       - name: Check the contextual Mushaf data on all 604 pages
         if: env.PACKAGE == 'true'
@@ -198,6 +199,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # The Linux and macOS workflow attaches its files to the same draft, so
+      # whichever finishes first creates it; a published release is never changed.
       - name: Attach to a draft release
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -205,10 +208,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $files = Get-ChildItem "$env:RUNNER_TEMP\package\release" -File | ForEach-Object FullName
-          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release $env:GITHUB_REF_NAME already exists; files are in the workflow artifact only."
-          } else {
+          foreach ($attempt in 1..3) {
+            $draft = gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --json isDraft --jq .isDraft 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              if ($draft -eq 'true') {
+                gh release upload $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY @files
+                if ($LASTEXITCODE -ne 0) { throw 'Uploading to the draft release failed.' }
+              } else {
+                Write-Host "Release $env:GITHUB_REF_NAME is already published; files are in the workflow artifact only."
+              }
+              exit 0
+            }
             gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft --verify-tag `
               --title "Quran Mushaf Reader $env:VERSION" --notes "Built by GitHub Actions from $env:GITHUB_SHA. Review, add release notes and publish." @files
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep -Seconds 15
           }
+          throw 'Could not create or update the draft release.'

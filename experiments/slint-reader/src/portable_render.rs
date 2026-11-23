@@ -30,7 +30,7 @@ const V4_BASMALA: &str = "\u{FCAA} \u{FCAB} \u{FCAE} \u{FCB4}";
 pub struct View {
     pub page: u32,
     pub area: Rect,
-    pub palette: crate::render::Palette,
+    pub palette: crate::theme::Palette,
     pub selection: Option<(u32, u32)>,
     pub recitation: Option<(u32, u32)>,
     pub opening: Option<u32>,
@@ -158,7 +158,7 @@ fn section_mark(hizb: Option<u32>, rub: Option<u32>, arabic: bool) -> Option<Str
     Some(format!("{label} {}", metadata_number(number, arabic)))
 }
 
-fn color(c: windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F) -> Color {
+fn color(c: crate::theme::Color) -> Color {
     Color::from_rgba(c.r.clamp(0., 1.), c.g.clamp(0., 1.), c.b.clamp(0., 1.), 1.)
         .unwrap_or(Color::BLACK)
 }
@@ -1226,9 +1226,15 @@ fn local_time() -> Option<(u16, u16)> {
     let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     Some((now.wHour, now.wMinute))
 }
-#[cfg(not(windows))]
+#[cfg(unix)]
 fn local_time() -> Option<(u16, u16)> {
-    None
+    // localtime_r reads the system time zone; it fills `now` or returns null.
+    let seconds = unsafe { libc::time(std::ptr::null_mut()) };
+    let mut now: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&seconds, &mut now) }.is_null() {
+        return None;
+    }
+    Some((now.tm_hour as u16, now.tm_min as u16))
 }
 
 /// The word under a point: the word box containing it, or within a space's

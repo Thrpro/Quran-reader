@@ -1,48 +1,32 @@
-//! Slint-side ownership of the existing, validated native recitation engine.
-//! No new transport, decoder, timing interpretation or provider is introduced.
-//! Construct and use on the UI thread; its event loop pumps the WinRT apartment.
+//! Slint-side ownership of the recitation engine: the portable engine in
+//! src/recitation on every platform, or, in a `native-audio` build, the
+//! validated native Windows engine, which has the same interface.
+//! Construct and use on the UI thread.
+pub use crate::audio_types::{AudioSnapshot, DownloadNotice, DownloadedSurah};
+#[cfg(not(feature = "native-audio"))]
+use crate::recitation::{
+    Audio, AudioCache, COUNTS, ClipEvent, ClipJob, ListeningRange, RecordingEvent, RecordingJob,
+    Transport,
+};
+use crate::{audio::RECITERS, data::Result, listening_layout, timed_audio::Recording};
+#[cfg(feature = "native-audio")]
 use crate::{
-    audio::{Audio, ListeningRange, RECITERS, Transport},
+    audio::{Audio, ListeningRange, Transport},
     audio_cache::{AudioCache, COUNTS, Event as ClipEvent, Job as ClipJob},
-    data::Result,
-    listening_layout,
-    timed_audio::Recording,
     timed_store::{Event as RecordingEvent, Job as RecordingJob},
 };
 use std::{
     fs,
     marker::PhantomData,
-    os::windows::fs::MetadataExt,
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(feature = "native-audio")]
 use windows::Win32::System::WinRT::{
     RO_INIT_MULTITHREADED, RO_INIT_SINGLETHREADED, RoInitialize, RoUninitialize,
 };
-
-/// Plain observed state. All times are actual content milliseconds, not a
-/// synthetic timer or an estimate derived from ayah count.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AudioSnapshot {
-    pub active: bool,
-    pub paused: bool,
-    pub loading: bool,
-    pub completed: bool,
-    pub error: bool,
-    pub continuous: bool,
-    pub can_seek: bool,
-    pub current: Option<(u32, u32)>,
-    pub opening_surah: Option<u32>,
-    pub position_ms: u64,
-    pub duration_ms: u64,
-    pub range_start_ms: u64,
-    pub range_end_ms: u64,
-    pub slider: u32,
-    pub clock: String,
-    pub status: String,
-}
 
 #[derive(Clone, Copy)]
 struct Request {
@@ -59,7 +43,10 @@ struct PendingSeek {
     sent_at: Option<Instant>,
 }
 
+/// The native engine's WinRT media objects need an apartment on this thread.
+#[cfg(feature = "native-audio")]
 struct Apartment;
+#[cfg(feature = "native-audio")]
 impl Apartment {
     fn initialize() -> Result<Self> {
         // Slint or accessibility may already own a compatible COM apartment.
@@ -77,31 +64,11 @@ impl Apartment {
         Ok(Self)
     }
 }
+#[cfg(feature = "native-audio")]
 impl Drop for Apartment {
     fn drop(&mut self) {
         unsafe { RoUninitialize() };
     }
-}
-
-/// A surah saved for offline listening. Reciters with a verified continuous
-/// recording keep that recording (with its ayah timing); others keep ayah clips.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DownloadedSurah {
-    pub reciter: usize,
-    pub surah: u32,
-    pub bytes: u64,
-    pub continuous: bool,
-    /// Every file its record names is present and non-empty. Playback still
-    /// verifies each file's hash; this only keeps the list honest.
-    pub complete: bool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DownloadNotice {
-    Progress(u32),
-    Done,
-    Failed(String),
-    Cancelled,
 }
 
 enum DownloadJob {
@@ -126,6 +93,7 @@ pub struct AudioBridge {
     volume: f64,
     // Audio owns its cache. Keep the apartment guard after it so media/cache
     // resources are dropped before the final RoUninitialize on this thread.
+    #[cfg(feature = "native-audio")]
     _apartment: Option<Apartment>,
     _owning_thread: PhantomData<Rc<()>>,
 }
@@ -145,6 +113,7 @@ impl AudioBridge {
             pending_seek: None,
             rate: 1.,
             volume: 1.,
+            #[cfg(feature = "native-audio")]
             _apartment: None,
             _owning_thread: PhantomData,
         }
@@ -154,11 +123,15 @@ impl AudioBridge {
         if self.audio.is_some() {
             return Ok(());
         }
+        #[cfg(feature = "native-audio")]
         let apartment = Apartment::initialize()?;
         let cache = AudioCache::new(self.profile_root.clone())?;
         self.cache = Some(cache.clone());
         let audio = Audio::with_cache(cache)?;
-        self._apartment = Some(apartment);
+        #[cfg(feature = "native-audio")]
+        {
+            self._apartment = Some(apartment);
+        }
         self.audio = Some(audio);
         Ok(())
     }
@@ -377,7 +350,7 @@ impl AudioBridge {
         for entry in fs::read_dir(&folder)? {
             let entry = entry?;
             let metadata = fs::symlink_metadata(entry.path())?;
-            if !metadata.is_file() || metadata.file_attributes() & 0x400 != 0 {
+            if !plain_file(&metadata) {
                 return Err(
                     "This download folder contains unexpected items and was left unchanged.".into(),
                 );
@@ -1021,8 +994,30 @@ fn parse_recording_folder(name: &str) -> Option<(usize, u32)> {
 }
 
 /// A real directory, not a link or junction.
+/// A real file: not a link (on Windows, not any reparse point).
+fn plain_file(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.is_file() && metadata.file_attributes() & 0x400 == 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.is_file()
+    }
+}
+
 fn plain_directory(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.file_attributes() & 0x400 == 0)
+    // A real folder: not a link (on Windows, not any reparse point).
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && m.file_attributes() & 0x400 == 0)
+    }
+    #[cfg(not(windows))]
+    {
+        fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
+    }
 }
 
 fn folder_bytes(path: &Path) -> u64 {

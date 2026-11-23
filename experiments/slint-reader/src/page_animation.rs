@@ -198,27 +198,9 @@ pub fn fold(old: &Surface, new: &Surface, area: Rect, direction: i32, p: f32) ->
     result
 }
 
-/// Page colors per theme: 0 dark gray, 1 light, 2 sepia, 3 pure black (all native
-/// palettes), 4 navy night. Navy uses the WebView reader's colors; its ink has
-/// about 18:1 contrast against the page.
-pub fn palette(theme: u32) -> crate::render::Palette {
-    if theme != 4 {
-        return crate::render::Palette::new(theme);
-    }
-    let c = |r: u8, g: u8, b: u8| windows::Win32::Graphics::Direct2D::Common::D2D1_COLOR_F {
-        r: r as f32 / 255.,
-        g: g as f32 / 255.,
-        b: b as f32 / 255.,
-        a: 1.,
-    };
-    crate::render::Palette {
-        background: c(7, 17, 31),
-        paper: c(10, 20, 34),
-        ink: c(251, 253, 255),
-        muted: c(170, 184, 199),
-        border: c(42, 69, 100),
-        highlight: c(26, 58, 80),
-    }
+/// Page colors per theme; see theme.rs.
+pub fn palette(theme: u32) -> crate::theme::Palette {
+    crate::theme::Palette::new(theme)
 }
 
 pub fn blend(old: &Surface, new: &Surface, p: f32, from: u32, to: u32) -> Vec<u8> {

@@ -69,4 +69,4 @@ It needs Inno Setup 6 and Visual Studio's C++ tools. Local builds are never sign
 
 ## If the dependencies change
 
-`licenses/` and `licenses/dependency-inventory.json` currently come from the pinned v0.16.0 resource ZIP, along with the Quran resources. If a dependency update adds a crate, `check_licenses.py` fails the build and names it, and the license notices need regenerating before release.
+`licenses/` and `licenses/dependency-inventory.json` come from the pinned v0.16.0 resource ZIP, along with the Quran resources. Crates added since then are covered by `add_licenses.py`: given `-Metadata <cargo metadata json>`, `package.ps1` copies each new crate's own license files into `licenses/<name>-<version>/`, adds its inventory entry, and then runs `check_licenses.py`, which fails the package if any shipped crate still has no notice. MPL-2.0 crates (Symphonia) also get a `SOURCE.txt` saying where their source is.
