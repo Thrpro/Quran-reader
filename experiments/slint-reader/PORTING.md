@@ -65,7 +65,7 @@ Each has its `SHA256SUMS-linux.txt` or `SHA256SUMS-macos.txt`. As on Windows:
 
 The CI then installs the .deb, unpacks the AppImage and mounts the .dmg to
 check them, and checks that the executables link only system libraries
-(Linux: libc, fontconfig and ALSA; the windowing and GPU libraries are loaded
+(Linux: libc, the C++ runtime, fontconfig, FreeType and ALSA; the windowing and GPU libraries are loaded
 when needed and are the .deb's dependencies).
 
 The AppImage tools are downloaded at fixed versions and checked against their

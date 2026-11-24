@@ -574,7 +574,6 @@ fn create_and_pin_directory(path: &Path) -> Result<PinnedDirectory> {
 mod tests {
     use super::*;
     use std::{
-        io::Write,
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -915,12 +914,16 @@ mod tests {
         fs::hard_link(&path, &link).unwrap();
         assert!(Profile::load(&root, &surahs()).is_err());
         fs::remove_file(link).unwrap();
-        let stream = PathBuf::from(format!("{}:unknown", path.display()));
-        let mut extra = File::create(&stream).unwrap();
-        extra.write_all(b"authored stream").unwrap();
-        drop(extra);
-        assert!(Profile::load(&root, &surahs()).is_err());
-        fs::remove_file(stream).unwrap();
+        // Alternate streams exist only on Windows (NTFS).
+        #[cfg(windows)]
+        {
+            let stream = PathBuf::from(format!("{}:unknown", path.display()));
+            let mut extra = File::create(&stream).unwrap();
+            std::io::Write::write_all(&mut extra, b"authored stream").unwrap();
+            drop(extra);
+            assert!(Profile::load(&root, &surahs()).is_err());
+            fs::remove_file(stream).unwrap();
+        }
         fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();
     }
