@@ -43,14 +43,15 @@ BUNDLE_ID = "io.github.thrpro.quran-mushaf-reader"
 HOMEPAGE = "https://github.com/Thrpro/Quran-reader"
 DESCRIPTION = "Read the Quran page by page in the Madani Mushaf, with recitation and tafsir"
 
-# The executable links fontconfig and ALSA, and loads the rest when it opens
+# The executable links fontconfig, FreeType, ALSA and the C++ runtime (for
+# Skia), and loads the rest when it opens
 # a window: xkbcommon, Wayland or X11, and EGL or GLX for GPU drawing.
-DEB_DEPENDS = ("libc6 (>= 2.39), libgcc-s1, libfontconfig1, libasound2t64 | libasound2, "
+DEB_DEPENDS = ("libc6 (>= 2.39), libgcc-s1, libstdc++6, libfontconfig1, libfreetype6, libasound2t64 | libasound2, "
                "libxkbcommon0, libwayland-client0 | libx11-6")
 DEB_RECOMMENDS = ("libwayland-cursor0, libwayland-egl1, libx11-xcb1, libxcursor1, libxi6, "
                   "libxrandr2, libxkbcommon-x11-0, libegl1, libgl1")
 # Shared libraries the executable may name directly (checked after the build).
-LINKED = {"libc.so.6", "libm.so.6", "libgcc_s.so.1", "libdl.so.2", "libpthread.so.0",
+LINKED = {"libc.so.6", "libm.so.6", "libgcc_s.so.1", "libstdc++.so.6", "libdl.so.2", "libpthread.so.0",
           "librt.so.1", "ld-linux-x86-64.so.2", "libfontconfig.so.1", "libfreetype.so.6",
           "libasound.so.2"}
 

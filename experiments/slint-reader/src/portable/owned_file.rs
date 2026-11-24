@@ -28,8 +28,14 @@ fn identity(metadata: &fs::Metadata) -> FileIdentity {
     }
 }
 
+/// As on Windows: a regular file with one link, so a save can never change or
+/// replace contents that also have another name.
 pub fn identity_file(file: &File) -> Result<FileIdentity> {
-    Ok(identity(&file.metadata()?))
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return Err("Owned storage requires a regular file with one link".into());
+    }
+    Ok(identity(&metadata))
 }
 
 /// A real directory (not a symbolic link, and with no linked ancestor), kept
@@ -82,6 +88,19 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         assert!(PinnedDirectory::open(&link).is_err());
         assert!(PinnedDirectory::open(Path::new("relative")).is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn hard_linked_files_and_folders_are_refused() {
+        let root = std::env::temp_dir().join(format!("qr-links-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("file");
+        fs::write(&path, b"one").unwrap();
+        assert!(identity_file(&File::open(&path).unwrap()).is_ok());
+        fs::hard_link(&path, root.join("alias")).unwrap();
+        assert!(identity_file(&File::open(&path).unwrap()).is_err());
+        assert!(identity_file(&File::open(&root).unwrap()).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
 

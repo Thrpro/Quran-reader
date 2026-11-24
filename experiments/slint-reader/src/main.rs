@@ -4135,6 +4135,15 @@ fn main() {
     }
     #[cfg(not(windows))]
     let _ = &args;
+    // With Mesa's default (FIFO) Vulkan presentation, GNOME 48 on Debian 13
+    // stopped asking for frames partway through a page turn in a virtual
+    // display. Mailbox presentation kept every turn moving, and Wayland's
+    // frame requests still pace the drawing. A value set by the user wins.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("MESA_VK_WSI_PRESENT_MODE").is_none() {
+        // SAFETY: nothing else runs yet, so no other thread reads the environment.
+        unsafe { std::env::set_var("MESA_VK_WSI_PRESENT_MODE", "mailbox") };
+    }
     if let Err(error) = run() {
         startup_failed(&error.to_string());
     }
