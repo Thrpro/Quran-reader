@@ -56,7 +56,17 @@ component Action inherits Rectangle {
  accessible-action-default => { if root.enabled { root.clicked(); } }
  forward-focus: keys;
  private property <length> pad: root.width < 52px ? 4px : 10px;
- button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : root.pad; width: max(0px, parent.width - (root.leading-icon > 0 ? 40px : 2 * root.pad)); height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.subtle ? 12px : 13px; font-weight: root.primary ? 600 : 400; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ // Widths are chosen for Segoe UI; Linux and macOS use other fonts, some wider.
+ // A label slightly too long takes spare padding and shrinks a little (to 80% at
+ // most) to fit. One that fits, or cannot be made to, is drawn exactly as before.
+ private property <length> base-size: root.subtle ? 12px : 13px;
+ private property <length> room: max(0px, root.width - (root.leading-icon > 0 ? 40px : 2 * root.pad));
+ private property <length> extra: root.leading-icon > 0 ? 6px : 2 * (root.pad - 4px);
+ private property <bool> tight: measure.preferred-width > root.room && measure.preferred-width * 0.8 <= root.room + root.extra - 1px;
+ private property <length> spare: root.tight ? root.extra : 0px;
+ private property <length> label-size: root.tight ? root.base-size * clamp((root.room + root.spare - 1px) / max(1px, measure.preferred-width), 0.8, 1) : root.base-size;
+ measure := Text { x: 0px; y: 0px; width: 0px; height: 0px; visible: false; text: root.symbol == 0 ? root.text : ""; font-size: root.base-size; font-weight: root.primary ? 600 : 400; accessible-role: none; }
+ button-label := Text { x: root.leading-icon > 0 && !root.rtl ? 30px : root.leading-icon > 0 ? root.pad - root.spare : root.pad - root.spare / 2; width: root.room + root.spare; height: parent.height; text: root.symbol == 0 && (root.leading-icon == 0 || root.width >= 64px) ? root.text : ""; color: root.primary ? UiColors.accent-ink : root.quiet && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; font-size: root.label-size; font-weight: root.primary ? 600 : 400; horizontal-alignment: root.centered ? center : root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
  if root.leading-icon > 0 : Path { x: root.rtl ? parent.width - 25px : 8px; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 16px; height: self.width; commands: root.leading-icon == 8 ? "M 6 0 C 2.7 0 0 2.7 0 6 C 0 9.3 2.7 12 6 12 C 9.3 12 12 9.3 12 6 C 12 2.7 9.3 0 6 0 Z M 10.5 10.5 L 16 16" : root.leading-icon == 9 ? "M 1 9 C 1 4 4 1 8 1 C 12 1 15 4 15 9 M 1 9 L 1 15 L 5 15 L 5 9 Z M 11 9 L 15 9 L 15 15 L 11 15 Z" : "M 0 4 L 3 4 M 7 4 L 16 4 M 0 12 L 9 12 M 13 12 L 16 12 M 7 4 A 2 2 0 1 1 3 4 A 2 2 0 1 1 7 4 M 13 12 A 2 2 0 1 1 9 12 A 2 2 0 1 1 13 12"; stroke: root.subtle && !root.selected && !touch.has-hover ? UiColors.muted : UiColors.ink; stroke-width: root.subtle ? 1.2px : 1.4px; fill: transparent; }
  if root.symbol == 1 : Path { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: root.subtle ? 14px : 17px; height: self.width; commands: "M 1 7 L 1 1 L 7 1 M 11 1 L 17 1 L 17 7 M 17 11 L 17 17 L 11 17 M 7 17 L 1 17 L 1 11"; stroke: UiColors.ink; stroke-width: 1.5px; fill: transparent; }
  if root.symbol == 12 : Path { x: (parent.width - 10px) / 2; y: (parent.height - 10px) / 2; width: 10px; height: 10px; commands: "M 0 0 L 10 10 M 10 0 L 0 10"; stroke: UiColors.muted; stroke-width: 1.2px; fill: transparent; }
@@ -339,7 +349,7 @@ component MenuItem inherits Rectangle {
 component SettingRow inherits HorizontalLayout {
  in property <string> label; in property <bool> rtl;
  spacing: 10px; preferred-height: 38px; min-height: 38px; vertical-stretch: 0;
- Text { layout-order: root.rtl ? 1 : 0; horizontal-stretch: 1; text: root.label; color: UiColors.ink; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; overflow: elide; }
+ Text { layout-order: root.rtl ? 1 : 0; horizontal-stretch: 1; min-width: 0px; text: root.label; color: UiColors.ink; font-size: 13px; horizontal-alignment: root.rtl ? right : left; vertical-alignment: center; wrap: word-wrap; overflow: elide; }
  @children
 }
 component ReadingBody inherits Rectangle {
@@ -1060,9 +1070,9 @@ export component ReaderWindow inherits Window {
          SectionHeading { layout-order: root.arabic ? 1 : 0; horizontal-stretch: 1; text: root.arabic ? "على هذا الجهاز" : "On this PC"; horizontal-alignment: root.arabic ? right : left; }
          Text { layout-order: root.arabic ? 0 : 1; text: root.downloads-storage; color: UiColors.muted; font-size: 12px; vertical-alignment: center; }
         }
-        if root.downloads.length == 0 : Rectangle { height: 70px; border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.5);
-         VerticalLayout { padding: 12px; spacing: 4px; alignment: center;
-          Text { text: root.arabic ? "لم تنزّل أي سورة بعد" : "You haven't downloaded any surahs yet"; color: UiColors.ink; font-size: 13px; font-weight: 600; horizontal-alignment: center; }
+        if root.downloads.length == 0 : Rectangle { height: max(70px, no-downloads.preferred-height); border-radius: 8px; border-width: 1px; border-color: UiColors.edge.with-alpha(0.5);
+         no-downloads := VerticalLayout { padding: 12px; spacing: 4px; alignment: center;
+          Text { text: root.arabic ? "لم تنزّل أي سورة بعد" : "You haven't downloaded any surahs yet"; color: UiColors.ink; font-size: 13px; font-weight: 600; wrap: word-wrap; horizontal-alignment: center; }
           Text { text: root.arabic ? "اختر قارئًا وسورة بالأسفل لتستمع دون اتصال." : "Choose a reciter and a surah below to listen offline."; color: UiColors.muted; font-size: 12px; horizontal-alignment: center; wrap: word-wrap; }
          }
         }
