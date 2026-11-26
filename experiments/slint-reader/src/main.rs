@@ -917,6 +917,22 @@ fn next_queued_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
     }
 }
 
+/// Lets a turn move once its first frame, held at zero, has been painted.
+fn release_primed_turn(
+    ui: &ReaderWindow,
+    state: &Rc<RefCell<State>>,
+    queue: &Arc<Queue>,
+    generation: i32,
+) {
+    if state.borrow().generation != generation || !ui.get_turn_running() || !ui.get_turn_priming()
+    {
+        return;
+    }
+    state.borrow_mut().primed_turns += 1;
+    ui.set_turn_priming(false);
+    settle_turn(ui, state, queue);
+}
+
 fn settle_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>) {
     if ui.get_turn_priming() || ui.get_drag_active() || !ui.get_turn_running() {
         return;
@@ -1052,7 +1068,12 @@ fn clear_outside_frame(
     }
 }
 
-fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, output: Output) {
+fn apply_output(
+    ui: &ReaderWindow,
+    state: &Rc<RefCell<State>>,
+    queue: &Arc<Queue>,
+    output: Output,
+) {
     match output {
         Output::Sections(result) => match result {
             Ok((sections, page_last)) => {
@@ -1216,6 +1237,34 @@ fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Queue, ou
                 ui.set_turn_priming(true);
                 ui.set_next_book(next_book);
                 ui.set_turn_target_page(output.page as i32);
+                // The turn normally starts from the redraw that paints its
+                // first frame. macOS can hold that redraw back (a covered or
+                // hidden window), which left the turn, and every key after
+                // it, waiting for good. Start it anyway after a short wait.
+                let generation = state.borrow().generation;
+                let weak = ui.as_weak();
+                let state = state.clone();
+                let queue = queue.clone();
+                slint::Timer::single_shot(Duration::from_millis(250), move || {
+                    let Some(ui) = weak.upgrade() else {
+                        return;
+                    };
+                    let mut s = state.borrow_mut();
+                    if s.generation != generation || s.prime_scheduled == Some(generation) {
+                        return;
+                    }
+                    s.prime_scheduled = Some(generation);
+                    let turn_ms = turn_queue::turn_ms(!s.turns.is_empty());
+                    let keep_release_ms = s.drag_finish.is_some();
+                    drop(s);
+                    if portable_render::timing_enabled() {
+                        eprintln!("[timing] page turn started without waiting for a redraw");
+                    }
+                    if !keep_release_ms {
+                        ui.set_turn_duration(turn_ms);
+                    }
+                    release_primed_turn(&ui, &state, &queue, generation);
+                });
             } else {
                 ui.set_book_image(next_book);
                 ui.set_next_book(slint::Image::default());
@@ -1859,7 +1908,7 @@ impl Qa {
         &mut self,
         ui: &ReaderWindow,
         state: &Rc<RefCell<State>>,
-        queue: &Queue,
+        queue: &Arc<Queue>,
     ) -> Result<bool> {
         if self.began.elapsed() > Duration::from_secs(120) {
             return Err(format!("Reading prototype QA exceeded 120 seconds at index {} phase {}; probe={:?}; panel={}; hoverRects={}", self.index, self.phase, state.borrow().probe, ui.get_panel(), ui.get_hover_rects().row_count()).into());
@@ -3424,14 +3473,8 @@ fn run() -> Result<()> {
                         // both textures installed and progress held at zero.
                         // Start motion on the following event-loop turn.
                         slint::Timer::single_shot(Duration::ZERO, move || {
-                            if let Some(ui) = weak.upgrade()
-                                && state.borrow().generation == generation
-                                && ui.get_turn_running()
-                                && ui.get_turn_priming()
-                            {
-                                state.borrow_mut().primed_turns += 1;
-                                ui.set_turn_priming(false);
-                                settle_turn(&ui, &state, &queue);
+                            if let Some(ui) = weak.upgrade() {
+                                release_primed_turn(&ui, &state, &queue, generation);
                             }
                         });
                     }
