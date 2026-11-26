@@ -917,6 +917,9 @@ fn next_queued_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
     }
 }
 
+/// How many redraws the window system has delivered, for `QR_TIMING`.
+static REDRAW_EVENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Lets a turn move once its first frame, held at zero, has been painted.
 fn release_primed_turn(
     ui: &ReaderWindow,
@@ -924,8 +927,7 @@ fn release_primed_turn(
     queue: &Arc<Queue>,
     generation: i32,
 ) {
-    if state.borrow().generation != generation || !ui.get_turn_running() || !ui.get_turn_priming()
-    {
+    if state.borrow().generation != generation || !ui.get_turn_running() || !ui.get_turn_priming() {
         return;
     }
     state.borrow_mut().primed_turns += 1;
@@ -1068,12 +1070,7 @@ fn clear_outside_frame(
     }
 }
 
-fn apply_output(
-    ui: &ReaderWindow,
-    state: &Rc<RefCell<State>>,
-    queue: &Arc<Queue>,
-    output: Output,
-) {
+fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>, output: Output) {
     match output {
         Output::Sections(result) => match result {
             Ok((sections, page_last)) => {
@@ -1258,7 +1255,13 @@ fn apply_output(
                     let keep_release_ms = s.drag_finish.is_some();
                     drop(s);
                     if portable_render::timing_enabled() {
-                        eprintln!("[timing] page turn started without waiting for a redraw");
+                        eprintln!(
+                            "[timing] page turn started without waiting for a redraw; {} redraws so far, visible {:?}",
+                            REDRAW_EVENTS.load(std::sync::atomic::Ordering::Relaxed),
+                            ui.window()
+                                .with_winit_window(|window| window.is_visible())
+                                .flatten()
+                        );
                     }
                     if !keep_release_ms {
                         ui.set_turn_duration(turn_ms);
@@ -3339,6 +3342,20 @@ fn run() -> Result<()> {
         let queue = queue.clone();
         let modifiers = std::cell::Cell::new(winit::keyboard::ModifiersState::empty());
         ui.window().on_winit_window_event(move |_, event| {
+            match event {
+                winit::event::WindowEvent::RedrawRequested => {
+                    REDRAW_EVENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                winit::event::WindowEvent::Occluded(_) | winit::event::WindowEvent::Focused(_)
+                    if portable_render::timing_enabled() =>
+                {
+                    eprintln!(
+                        "[timing] window {event:?} after {} redraws",
+                        REDRAW_EVENTS.load(std::sync::atomic::Ordering::Relaxed)
+                    );
+                }
+                _ => {}
+            }
             if let Some(ui) = weak.upgrade() {
                 if matches!(event, winit::event::WindowEvent::KeyboardInput { .. }) {
                     ui.set_keyboard_focus(true);
