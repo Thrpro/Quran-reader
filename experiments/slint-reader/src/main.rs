@@ -3179,6 +3179,16 @@ fn run() -> Result<()> {
             LINUX_APP_ID,
         )
     });
+    // A normal macOS window: the traffic-light buttons sit over the app's own
+    // header, which fills the window up to the top edge.
+    #[cfg(target_os = "macos")]
+    let backend = backend.with_winit_window_attributes_hook(|attributes| {
+        use winit::platform::macos::WindowAttributesExtMacOS;
+        attributes
+            .with_titlebar_transparent(true)
+            .with_title_hidden(true)
+            .with_fullsize_content_view(true)
+    });
     backend
         .backend_name("winit".into())
         .renderer_name(
@@ -3192,6 +3202,7 @@ fn run() -> Result<()> {
         .select()?;
     startup_mark("backend selected");
     let ui = ReaderWindow::new()?;
+    ui.set_native_titlebar(cfg!(target_os = "macos"));
     startup_mark("window created");
     ui.on_compute_fold(|progress, width, height, single, direction, top| {
         let scene = page_animation::fold_scene(width, height, single, direction, progress, top);
@@ -4093,9 +4104,22 @@ fn startup_failed(error: &str) -> ! {
             ),
         );
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     show_startup_failure(&text);
     std::process::exit(1);
+}
+/// An app opened from Finder has no console, so without this a failed start
+/// looks like the app never opened. The text is passed as an argument, never
+/// as part of the script.
+#[cfg(target_os = "macos")]
+fn show_startup_failure(text: &str) {
+    let script = "display alert \"Quran Mushaf Reader could not start\" message (item 1 of argv) as critical";
+    let _ = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", "on run argv", "-e", script, "-e", "end run", "--"])
+        .arg(format!(
+            "{text}\n\nThe details are in ~/Library/Application Support/Quran Mushaf Reader/startup-error.log.\n\nتعذّر تشغيل قارئ المصحف."
+        ))
+        .status();
 }
 #[cfg(windows)]
 fn show_startup_failure(text: &str) {

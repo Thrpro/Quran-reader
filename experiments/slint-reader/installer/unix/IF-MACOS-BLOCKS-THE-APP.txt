@@ -1,0 +1,23 @@
+Quran Mushaf Reader is not signed with a paid Apple Developer ID, so macOS
+blocks it the first time you open it. To allow it, once:
+
+1. Drag Quran Mushaf Reader to Applications and open it from there.
+   Choose Done (not Move to Trash).
+2. Open System Settings > Privacy & Security and scroll down to Security.
+3. Beside the message about Quran Mushaf Reader, choose Open Anyway, and
+   confirm with your password or Touch ID.
+
+On macOS 14 and earlier, Control-click the app and choose Open instead.
+
+Only do this for a copy from https://github.com/Thrpro/Quran-reader/releases.
+If it still does not open, please report the exact message, your macOS version
+and your Mac's chip (Apple menu > About This Mac):
+https://github.com/Thrpro/Quran-reader/issues
+
+
+قارئ المصحف غير موقّع بشهادة مطوّر مدفوعة من Apple، لذلك يمنعه macOS أول مرة.
+للسماح به مرة واحدة:
+
+١. اسحب التطبيق إلى مجلد التطبيقات (Applications) وافتحه منه، ثم اختر «تم».
+٢. افتح إعدادات النظام > الخصوصية والأمن، وانزل إلى قسم الأمن.
+٣. بجانب الرسالة الخاصة بالتطبيق اختر «فتح على أي حال»، ثم أكّد.

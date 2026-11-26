@@ -73,6 +73,11 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt --no-self-update
           rustup default 1.99.0
 
+      # One app for both kinds of Mac.
+      - name: Add the Intel Mac target
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin
+
       # Fonts are found through fontconfig; windows open through Wayland or X11;
       # sound plays through ALSA (which PipeWire and PulseAudio also serve).
       - name: Install the Linux libraries
@@ -123,7 +128,23 @@ jobs:
 
       - name: Build
         working-directory: ${{ env.READER }}
+        # macOS keeps function names (not debug info), so a hang sampled on a
+        # tester's Mac (`sample`) shows where the time goes.
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: ${{ runner.os == 'macOS' && 'debuginfo' || 'symbols' }}
         run: cargo build --release --locked
+
+      - name: Build for Intel Macs and join the two
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        working-directory: ${{ env.READER }}
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: debuginfo
+        run: |
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output "$RUNNER_TEMP/quran-mushaf-reader" \
+            target/release/quran-slint-reader-prototype \
+            target/x86_64-apple-darwin/release/quran-slint-reader-prototype
+          lipo "$RUNNER_TEMP/quran-mushaf-reader" -verify_arch arm64 x86_64
 
       - name: Fetch the pinned AppImage tools
         if: env.PACKAGE == 'true' && runner.os == 'Linux'
@@ -172,14 +193,19 @@ jobs:
         if: env.PACKAGE == 'true'
         run: |
           cd "$READER"
-          cargo metadata --format-version 1 --locked --filter-platform "${{ matrix.rust-target }}" \
-            > "$RUNNER_TEMP/metadata.json"
+          platforms="--filter-platform ${{ matrix.rust-target }}"
+          exe=target/release/quran-slint-reader-prototype
           tools=""
+          if [ "$RUNNER_OS" = macOS ]; then
+            platforms="$platforms --filter-platform x86_64-apple-darwin"
+            exe="$RUNNER_TEMP/quran-mushaf-reader"
+          fi
+          cargo metadata --format-version 1 --locked $platforms > "$RUNNER_TEMP/metadata.json"
           if [ "$RUNNER_OS" = Linux ]; then
             tools="--appimagetool $RUNNER_TEMP/tools/appimagetool --runtime $RUNNER_TEMP/tools/runtime"
           fi
           python3 installer/unix/package.py --target "${{ matrix.name }}" \
-            --exe target/release/quran-slint-reader-prototype --version "$VERSION" \
+            --exe "$exe" --version "$VERSION" \
             --out "$RUNNER_TEMP/package" --metadata "$RUNNER_TEMP/metadata.json" $tools
 
       - name: Check the Linux packages
@@ -205,7 +231,7 @@ jobs:
         if: env.PACKAGE == 'true' && runner.os == 'macOS'
         run: |
           cd "$RUNNER_TEMP/package/release"
-          dmg="QuranMushafReader-${VERSION}-macos-arm64.dmg"
+          dmg="QuranMushafReader-${VERSION}-macos-universal.dmg"
           hdiutil verify "$dmg"
           mount=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | cut -f3-)
           app="$mount/Quran Mushaf Reader.app"
@@ -218,8 +244,71 @@ jobs:
             echo "The app links a library that macOS does not provide." >&2
             exit 1
           fi
+          lipo "$app/Contents/MacOS/quran-mushaf-reader" -verify_arch arm64 x86_64
+          ditto "$app" "/Applications/Quran Mushaf Reader.app"
           hdiutil detach "$mount"
           shasum -a 256 -c SHA256SUMS-macos.txt
+
+      # Opened as a person would, on Apple silicon and then as on an Intel Mac
+      # through Rosetta. A failed start leaves no running app, or an error log.
+      - name: Open the macOS app
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        run: |
+          app="/Applications/Quran Mushaf Reader.app"
+          log="$HOME/Library/Application Support/Quran Mushaf Reader/startup-error.log"
+          mkdir -p "$RUNNER_TEMP/screens"
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          for arch in arm64 x86_64; do
+            if [ "$arch" = x86_64 ] && ! arch -x86_64 /usr/bin/true; then
+              echo "::warning::Rosetta is not available here; the Intel half was not opened."
+              continue
+            fi
+            open -n --arch "$arch" "$app"
+            sleep 12
+            # Where the main thread spends its time while the app sits open:
+            # a hang shows as one call stack taking most of the samples.
+            sample quran-mushaf-reader 8 -mayDie -file "$RUNNER_TEMP/screens/sample-$arch.txt" || true
+            screencapture -x "$RUNNER_TEMP/screens/macos-$arch.png" || true
+            if [ -e "$log" ]; then
+              cat "$log"
+              exit 1
+            fi
+            if ! pgrep -x quran-mushaf-reader; then
+              echo "The app is not running ($arch)." >&2
+              cat ~/Library/Logs/DiagnosticReports/quran-mushaf-reader* 2>/dev/null | head -120
+              exit 1
+            fi
+            pkill -x quran-mushaf-reader
+            sleep 3
+          done
+          # For the log: Gatekeeper rejects it until it is notarized.
+          spctl -a -vv "$app" || true
+
+      # The interface checks (page turns, panels, timings) on a real Mac
+      # window, as on Windows. Kept for reading; the release does not wait on it.
+      - name: Time the interface on macOS
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          exe="/Applications/Quran Mushaf Reader.app/Contents/MacOS/quran-mushaf-reader"
+          out="$RUNNER_TEMP/screens/qa"
+          QR_TIMING=1 "$exe" --qa-output "$out" > "$RUNNER_TEMP/screens/qa-log.txt" 2>&1 &
+          pid=$!
+          sleep 25
+          sample "$pid" 8 -mayDie -file "$RUNNER_TEMP/screens/sample-qa.txt" || true
+          for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done
+          kill "$pid" 2>/dev/null || true
+          tail -60 "$RUNNER_TEMP/screens/qa-log.txt"
+          ls "$out" || true
+
+      - name: Keep the macOS screenshots
+        if: always() && env.PACKAGE == 'true' && runner.os == 'macOS'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: macos-screenshots
+          path: ${{ runner.temp }}/screens/*
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Keep the release files
         if: env.PACKAGE == 'true'

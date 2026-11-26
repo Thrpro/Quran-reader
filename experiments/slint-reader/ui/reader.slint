@@ -401,7 +401,9 @@ component FoldClip inherits Rectangle {
 }
 export component ReaderWindow inherits Window {
  title: "Quran Mushaf Reader · Slint reading prototype";
- no-frame: true;
+ // macOS keeps its own traffic-light buttons over a transparent title bar.
+ in property <bool> native-titlebar: false;
+ no-frame: !root.native-titlebar;
  preferred-width: 1180px; preferred-height: 640px; min-width: 740px; min-height: 500px;
  default-font-family: "Segoe UI"; default-font-size: 14px;
  // Original public contract remains compatible with native-pixel QA.
@@ -672,14 +674,14 @@ export component ReaderWindow inherits Window {
    if !root.fullscreen : Rectangle {
     height: 28px; background: UiColors.canvas;
     Rectangle { background: transparent; TouchArea { pointer-event(e) => {if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {root.window-action(3);}} double-clicked => {root.window-action(1);} }
-     brand := Rectangle { x: 8px; y: 0px; height: parent.height; width: root.arabic ? 112px : 166px; background: transparent;
+     brand := Rectangle { x: root.native-titlebar ? 76px : 8px; y: 0px; height: parent.height; width: root.arabic ? 112px : 166px; background: transparent;
       init => {root.brand-x = self.x / 1px; root.brand-w = self.width / 1px;}
       changed x => {root.brand-x = self.x / 1px;} changed width => {root.brand-w = self.width / 1px;}
       Path { x: 1px; y: 7px; width: 15px; height: 14px; commands: "M 7.5 2 C 5 0 2 0 0.5 1 L 0.5 12 C 3 11 5.5 11 7.5 13 C 9.5 11 12 11 14.5 12 L 14.5 1 C 12 0 10 0 7.5 2 Z M 7.5 2 L 7.5 13"; fill: transparent; stroke: UiColors.accent; stroke-width: 1.1px; }
       Text { x: 23px; y: 0px; width: parent.width - 26px; height: parent.height; text: root.arabic ? "قارئ المصحف" : "Quran Mushaf Reader"; color: UiColors.ink; font-size: 12px; vertical-alignment: center; horizontal-alignment: root.arabic ? right : left; overflow: elide; }
       TouchArea { pointer-event(e) => {if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {root.window-action(3);}} double-clicked => {root.window-action(1);} }
      }
-     navigation := Rectangle { animate x {duration: 160ms; easing: ease-out; enabled: root.motion-enabled && root.onboarding-complete;} x: root.arabic ? parent.width - 136px - self.width : brand.x + brand.width + 4px; y: 0px; height: parent.height; width: root.audio-active && root.player-docked ? 376px : 250px; background: transparent;
+     navigation := Rectangle { animate x {duration: 160ms; easing: ease-out; enabled: root.motion-enabled && root.onboarding-complete;} x: root.arabic ? parent.width - (root.native-titlebar ? 12px : 136px) - self.width : brand.x + brand.width + 4px; y: 0px; height: parent.height; width: root.audio-active && root.player-docked ? 376px : 250px; background: transparent;
       init => {root.nav-x = self.x / 1px; root.nav-w = self.width / 1px;}
       changed x => {root.nav-x = self.x / 1px;} changed width => {root.nav-w = self.width / 1px;}
       HorizontalLayout { spacing: 2px;
@@ -690,7 +692,7 @@ export component ReaderWindow inherits Window {
        HeaderAction { layout-order: root.arabic ? 0 : 4; leading-icon: 10; rtl: root.arabic; width: 86px; text: root.arabic ? "الخيارات" : "Options"; selected: root.panel == "settings"; clicked => {root.context-open = false; root.panel = root.panel == "settings" ? "" : "settings";} }
       }
      }
-     Rectangle { x: parent.width - 132px; y: 0px; height: parent.height; width: 132px; background: transparent;
+     if !root.native-titlebar : Rectangle { x: parent.width - 132px; y: 0px; height: parent.height; width: 132px; background: transparent;
       HorizontalLayout {spacing: 0px;
        CaptionButton {kind: 0; label: root.arabic ? "تصغير" : "Minimize"; clicked => {root.window-action(0);} }
        CaptionButton {kind: 1; maximized: root.window-maximized; label: root.arabic ? "تكبير أو استعادة" : "Maximize or restore"; clicked => {root.window-action(1);} }
@@ -1449,12 +1451,12 @@ export component ReaderWindow inherits Window {
  // window is neither maximized nor full screen. Each is pinned to its side:
  // without x and y an element is centred. Corners come last so they win where
  // they overlap an edge.
- if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 6px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: root.width; height: 5px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 6px; width: root.width; height: 6px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(4); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(5); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(6); } } } }
- if !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(7); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(0); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 6px; y: 0px; width: 6px; height: root.height; TouchArea { mouse-cursor: ew-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(1); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: root.width; height: 5px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(2); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 6px; width: root.width; height: 6px; TouchArea { mouse-cursor: ns-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(3); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(4); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: 0px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(5); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: 0px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nesw-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(6); } } } }
+ if !root.native-titlebar && !root.window-maximized && !root.fullscreen : Rectangle { x: root.width - 12px; y: root.height - 12px; width: 12px; height: 12px; TouchArea { mouse-cursor: nwse-resize; pointer-event(e) => { if e.button == PointerEventButton.left && e.kind == PointerEventKind.down { root.resize-edge(7); } } } }
 }

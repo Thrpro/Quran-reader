@@ -36,7 +36,7 @@ the same on all three systems.
 - **A Developer ID for macOS.** The .dmg is signed ad hoc until the signing
   secrets are set (below), so macOS asks people to confirm the app on first
   launch.
-- **Intel Macs** and **64-bit ARM Linux** have no package yet.
+- **64-bit ARM Linux** has no package yet.
 - **Interface font.** The interface asks for Segoe UI; Linux and macOS use
   their own system font instead. Bundling one font would make all three alike.
 
@@ -49,7 +49,7 @@ then attaches the files to the same draft release as the Windows ones:
 | System | Files |
 | --- | --- |
 | Linux (x86-64, glibc 2.39 or later) | `QuranMushafReader-<version>-x86_64.AppImage`, `quran-mushaf-reader_<version>_amd64.deb`, `QuranMushafReader-<version>-linux-x86_64.tar.gz` |
-| macOS (Apple silicon, 11 or later) | `QuranMushafReader-<version>-macos-arm64.dmg` |
+| macOS (Apple silicon and Intel, 11 or later) | `QuranMushafReader-<version>-macos-universal.dmg` |
 
 Each has its `SHA256SUMS-linux.txt` or `SHA256SUMS-macos.txt`. As on Windows:
 
