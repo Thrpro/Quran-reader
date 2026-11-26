@@ -28,12 +28,20 @@ To keep them beside an extracted .tar.gz copy instead, create a folder named
 
 ## macOS
 
-Open the .dmg and drag Quran Mushaf Reader to Applications. It runs on Macs
-with Apple silicon, macOS 11 or later.
+Open the .dmg and drag Quran Mushaf Reader to Applications, then open it from
+there. It runs on Macs with Apple silicon or Intel, macOS 11 or later.
 
-If the release is not signed with an Apple Developer ID, macOS says it cannot
-check the app for malicious software. Open it once with right-click (or
-Control-click) and **Open**, or allow it in System Settings, Privacy & Security.
+If the release is not signed with an Apple Developer ID, macOS blocks it the
+first time. That is expected:
+
+1. Open the app once, and choose **Done** (not Move to Trash).
+2. Open **System Settings > Privacy & Security** and scroll down to Security.
+3. Beside the message about Quran Mushaf Reader, choose **Open Anyway**, and
+   confirm with your password or Touch ID.
+
+You only do this once. On macOS 14 and earlier, Control-clicking the app and
+choosing **Open** also works. Only do this for a copy from the project's own
+releases page, after checking it against SHA256SUMS-macos.txt.
 
 Settings are kept in `~/Library/Application Support/Quran Mushaf Reader`.
 

@@ -269,7 +269,9 @@ def macos(args, base, license_folder, work, release):
         run("codesign", "--force", "--sign", "-", app)
     run("codesign", "--verify", "--strict", "--verbose=2", app)
     os.symlink("/Applications", stage / "Applications")
-    dmg = release / f"QuranMushafReader-{args.version}-macos-arm64.dmg"
+    if not identity:
+        shutil.copyfile(HERE / "IF-MACOS-BLOCKS-THE-APP.txt", stage / "If macOS blocks the app.txt")
+    dmg = release / f"QuranMushafReader-{args.version}-macos-universal.dmg"
     run("hdiutil", "create", "-volname", APP_NAME, "-srcfolder", stage, "-fs", "HFS+",
         "-format", "UDZO", dmg)
     if identity:
