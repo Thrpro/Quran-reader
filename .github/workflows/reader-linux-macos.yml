@@ -238,8 +238,11 @@ jobs:
           codesign --verify --strict --verbose=2 "$app"
           test -x "$app/Contents/MacOS/quran-mushaf-reader"
           otool -L "$app/Contents/MacOS/quran-mushaf-reader"
-          # Only libraries that come with macOS.
-          if otool -L "$app/Contents/MacOS/quran-mushaf-reader" | tail -n +2 |
+          # Only libraries that come with macOS. A universal app lists each
+          # architecture under its own heading line; only indented lines are
+          # libraries.
+          if otool -L "$app/Contents/MacOS/quran-mushaf-reader" |
+              grep -E '^[[:space:]]' |
               grep -vE '^[[:space:]]+(/System/Library/|/usr/lib/)'; then
             echo "The app links a library that macOS does not provide." >&2
             exit 1
