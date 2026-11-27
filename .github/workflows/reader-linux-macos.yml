@@ -294,15 +294,76 @@ jobs:
         continue-on-error: true
         run: |
           exe="/Applications/Quran Mushaf Reader.app/Contents/MacOS/quran-mushaf-reader"
-          out="$RUNNER_TEMP/screens/qa"
-          QR_TIMING=1 "$exe" --qa-output "$out" > "$RUNNER_TEMP/screens/qa-log.txt" 2>&1 &
-          pid=$!
-          sleep 25
-          sample "$pid" 8 -mayDie -file "$RUNNER_TEMP/screens/sample-qa.txt" || true
-          for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done
-          kill "$pid" 2>/dev/null || true
-          tail -60 "$RUNNER_TEMP/screens/qa-log.txt"
-          ls "$out" || true
+          status=0
+          for renderer in gpu software; do
+            out="$RUNNER_TEMP/screens/qa-$renderer"
+            log="$RUNNER_TEMP/screens/qa-$renderer.log"
+            QR_TIMING=1 "$exe" --renderer "$renderer" --qa-output "$out" > "$log" 2>&1 &
+            pid=$!
+            for _ in $(seq 1 5); do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              sample "$pid" 8 -mayDie -file "$RUNNER_TEMP/screens/sample-qa-$renderer.txt" || true
+            fi
+            for _ in $(seq 1 25); do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 5
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "::warning::macOS QA timed out ($renderer)."
+              kill "$pid" 2>/dev/null || true
+            fi
+            if ! wait "$pid"; then
+              echo "::warning::macOS QA failed ($renderer). See the uploaded log."
+              status=1
+            fi
+            tail -60 "$log"
+            ls "$out" || true
+          done
+          exit "$status"
+
+      # A new user's first minute, with a real profile: choose English, start
+      # reading, turn a page, close, reopen. A tester's Mac froze on this
+      # screen; the QA above starts with the welcome already finished.
+      - name: Try the welcome screen on macOS
+        if: env.PACKAGE == 'true' && runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          exe="/Applications/Quran Mushaf Reader.app/Contents/MacOS/quran-mushaf-reader"
+          status=0
+          for renderer in gpu software; do
+            profile="$RUNNER_TEMP/first-run-$renderer"
+            rm -rf "$profile"
+            for phase in fresh relaunch; do
+              log="$RUNNER_TEMP/screens/first-run-$renderer-$phase.log"
+              QR_TIMING=1 SLINT_DEBUG_PERFORMANCE=refresh_lazy,console \
+                "$exe" --renderer "$renderer" --profile "$profile" --first-run-probe "$phase" \
+                > "$log" 2>&1 &
+              pid=$!
+              for _ in $(seq 1 30); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
+              done
+              # Still open after 30 s: stuck. Record where before stopping it.
+              if kill -0 "$pid" 2>/dev/null; then
+                sample "$pid" 8 -mayDie -file "$RUNNER_TEMP/screens/sample-first-run-$renderer-$phase.txt" || true
+                for _ in $(seq 1 40); do
+                  kill -0 "$pid" 2>/dev/null || break
+                  sleep 1
+                done
+                kill "$pid" 2>/dev/null || true
+              fi
+              if ! wait "$pid"; then
+                echo "::warning::The welcome screen check failed ($renderer, $phase). See the uploaded log."
+                status=1
+              fi
+              echo "== $renderer $phase"
+              grep -E '^\[probe\]|preferences saved|backend selected|Saving|failed' "$log" || tail -20 "$log"
+            done
+          done
+          exit "$status"
 
       - name: Keep the macOS screenshots
         if: always() && env.PACKAGE == 'true' && runner.os == 'macOS'

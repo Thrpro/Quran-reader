@@ -25,6 +25,7 @@ mod controls;
 #[allow(dead_code)]
 #[path = "../../../windows/QuranMushaf.Native/src/file_integrity.rs"]
 mod file_integrity;
+mod first_run_probe;
 #[cfg(windows)]
 mod gpu_choice;
 #[cfg(windows)]
@@ -917,6 +918,9 @@ fn next_queued_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>) {
     }
 }
 
+/// How many redraws the window system has delivered, for `QR_TIMING`.
+static REDRAW_EVENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Lets a turn move once its first frame, held at zero, has been painted.
 fn release_primed_turn(
     ui: &ReaderWindow,
@@ -924,13 +928,44 @@ fn release_primed_turn(
     queue: &Arc<Queue>,
     generation: i32,
 ) {
-    if state.borrow().generation != generation || !ui.get_turn_running() || !ui.get_turn_priming()
-    {
+    if state.borrow().generation != generation || !ui.get_turn_running() || !ui.get_turn_priming() {
         return;
     }
     state.borrow_mut().primed_turns += 1;
     ui.set_turn_priming(false);
     settle_turn(ui, state, queue);
+}
+
+/// Records a running turn's progress every 16 ms, for QA only. On macOS the
+/// display link draws frames without the window-event hook seeing them, so this
+/// measures the animation's clock, not frames presented.
+#[cfg(target_os = "macos")]
+fn sample_turn_progress(ui: &ReaderWindow, state: &Rc<RefCell<State>>, generation: i32) {
+    {
+        let mut s = state.borrow_mut();
+        if !s.qa || s.generation != generation || !ui.get_turn_running() {
+            return;
+        }
+        let now = Instant::now();
+        s.motion_progress = ui.get_turn_progress();
+        if s.turn_progress_samples.len() < 240 {
+            let progress = s.motion_progress;
+            s.turn_progress_samples.push(progress);
+        }
+        if let Some(previous) = s.turn_last_redraw.replace(now)
+            && s.turn_redraw_intervals.len() < 240
+        {
+            s.turn_redraw_intervals
+                .push(now.duration_since(previous).as_secs_f64() * 1000.);
+        }
+    }
+    let weak = ui.as_weak();
+    let state = state.clone();
+    slint::Timer::single_shot(Duration::from_millis(16), move || {
+        if let Some(ui) = weak.upgrade() {
+            sample_turn_progress(&ui, &state, generation);
+        }
+    });
 }
 
 fn settle_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>) {
@@ -945,6 +980,8 @@ fn settle_turn(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>
     s.settle_scheduled = Some(generation);
     let (commit, original) = s.drag_finish.take().unwrap_or((true, 0));
     drop(s);
+    #[cfg(target_os = "macos")]
+    sample_turn_progress(ui, state, generation);
     let weak = ui.as_weak();
     let state = state.clone();
     let queue = queue.clone();
@@ -1068,12 +1105,7 @@ fn clear_outside_frame(
     }
 }
 
-fn apply_output(
-    ui: &ReaderWindow,
-    state: &Rc<RefCell<State>>,
-    queue: &Arc<Queue>,
-    output: Output,
-) {
+fn apply_output(ui: &ReaderWindow, state: &Rc<RefCell<State>>, queue: &Arc<Queue>, output: Output) {
     match output {
         Output::Sections(result) => match result {
             Ok((sections, page_last)) => {
@@ -1237,15 +1269,19 @@ fn apply_output(
                 ui.set_turn_priming(true);
                 ui.set_next_book(next_book);
                 ui.set_turn_target_page(output.page as i32);
-                // The turn normally starts from the redraw that paints its
-                // first frame. macOS can hold that redraw back (a covered or
-                // hidden window), which left the turn, and every key after
-                // it, waiting for good. Start it anyway after a short wait.
+                // Elsewhere the turn starts from the winit redraw that paints
+                // its first frame. On macOS 14 and later Slint draws from a
+                // display link that never passes through that event (see
+                // i-slint-backend-winit frame_throttle/apple_display_link.rs),
+                // so two frames on a clock stand in for it. Everywhere, a turn
+                // whose redraw never comes starts anyway: waiting left it, and
+                // every key after it, stuck.
                 let generation = state.borrow().generation;
                 let weak = ui.as_weak();
                 let state = state.clone();
                 let queue = queue.clone();
-                slint::Timer::single_shot(Duration::from_millis(250), move || {
+                let start_after = if cfg!(target_os = "macos") { 34 } else { 250 };
+                slint::Timer::single_shot(Duration::from_millis(start_after), move || {
                     let Some(ui) = weak.upgrade() else {
                         return;
                     };
@@ -1257,8 +1293,14 @@ fn apply_output(
                     let turn_ms = turn_queue::turn_ms(!s.turns.is_empty());
                     let keep_release_ms = s.drag_finish.is_some();
                     drop(s);
-                    if portable_render::timing_enabled() {
-                        eprintln!("[timing] page turn started without waiting for a redraw");
+                    if !cfg!(target_os = "macos") && portable_render::timing_enabled() {
+                        eprintln!(
+                            "[timing] page turn started without waiting for a redraw; {} redraws so far, visible {:?}",
+                            REDRAW_EVENTS.load(std::sync::atomic::Ordering::Relaxed),
+                            ui.window()
+                                .with_winit_window(|window| window.is_visible())
+                                .flatten()
+                        );
                     }
                     if !keep_release_ms {
                         ui.set_turn_duration(turn_ms);
@@ -2019,9 +2061,9 @@ impl Qa {
                             && self.fast_start_progress >= 0.2;
                         json_file(
                             &self.output.join("maximized-motion-qa.json"),
-                            &json!({"passed":passed,"enforced":!self.software_rendering,"renderer":if self.software_rendering {"skia-software"} else {"skia"},"window":[size.width,size.height],"turns":self.maximized_turns,"frames":frames.len(),"medianFrameMs":median,"p95FrameMs":p95,"p95BudgetMs":MAXIMIZED_P95_BUDGET_MS,"progressAfter40Ms":self.fast_start_progress,"monitorRefreshMillihertz":state.borrow().turn_monitor_millihertz,"scope":"Application redraw requests, not measured monitor presentation FPS"}),
+                            &json!({"passed":passed,"enforced":!self.software_rendering && !cfg!(target_os = "macos"),"renderer":if self.software_rendering {"skia-software"} else {"skia"},"window":[size.width,size.height],"turns":self.maximized_turns,"frames":frames.len(),"medianFrameMs":median,"p95FrameMs":p95,"p95BudgetMs":MAXIMIZED_P95_BUDGET_MS,"progressAfter40Ms":self.fast_start_progress,"monitorRefreshMillihertz":state.borrow().turn_monitor_millihertz,"scope":"Application redraw requests, not measured monitor presentation FPS"}),
                         )?;
-                        if !passed && !self.software_rendering {
+                        if !passed && !self.software_rendering && !cfg!(target_os = "macos") {
                             return Err(format!("Maximized page turn missed its budget: frames={}, medianMs={median}, p95Ms={p95}, progressAfter40Ms={}", frames.len(), self.fast_start_progress).into());
                         }
                         self.phase = 9303;
@@ -3339,6 +3381,20 @@ fn run() -> Result<()> {
         let queue = queue.clone();
         let modifiers = std::cell::Cell::new(winit::keyboard::ModifiersState::empty());
         ui.window().on_winit_window_event(move |_, event| {
+            match event {
+                winit::event::WindowEvent::RedrawRequested => {
+                    REDRAW_EVENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                winit::event::WindowEvent::Occluded(_) | winit::event::WindowEvent::Focused(_)
+                    if portable_render::timing_enabled() =>
+                {
+                    eprintln!(
+                        "[timing] window {event:?} after {} redraws",
+                        REDRAW_EVENTS.load(std::sync::atomic::Ordering::Relaxed)
+                    );
+                }
+                _ => {}
+            }
             if let Some(ui) = weak.upgrade() {
                 if matches!(event, winit::event::WindowEvent::KeyboardInput { .. }) {
                     ui.set_keyboard_focus(true);
@@ -3428,7 +3484,12 @@ fn run() -> Result<()> {
                 let queue = queue.clone();
                 slint::Timer::single_shot(Duration::from_millis(20), move || {
                     if let Some(ui) = weak.upgrade() {
-                        if invalidate {
+                        // A fresh render replaces the generation, which would
+                        // cancel a turn in progress and the keys queued behind
+                        // it. macOS reports uncovering often (Mission Control,
+                        // a window passing over); the redraw below suffices.
+                        let turning = ui.get_turn_running() || !state.borrow().turns.is_empty();
+                        if invalidate && !turning {
                             state.borrow_mut().requested = None;
                             request_render(&ui, &state, &queue);
                         }
@@ -3443,12 +3504,17 @@ fn run() -> Result<()> {
                 {
                     let now = Instant::now();
                     let mut s = state.borrow_mut();
-                    s.motion_progress = ui.get_turn_progress();
-                    if s.turn_progress_samples.len() < 240 {
+                    // On macOS sample_turn_progress keeps these instead.
+                    let record = !cfg!(target_os = "macos");
+                    if record {
+                        s.motion_progress = ui.get_turn_progress();
+                    }
+                    if record && s.turn_progress_samples.len() < 240 {
                         let progress = s.motion_progress;
                         s.turn_progress_samples.push(progress);
                     }
-                    if let Some(previous) = s.turn_last_redraw.replace(now)
+                    if record
+                        && let Some(previous) = s.turn_last_redraw.replace(now)
                         && s.turn_redraw_intervals.len() < 240
                     {
                         s.turn_redraw_intervals
@@ -4063,11 +4129,23 @@ fn run() -> Result<()> {
             move || {
                 if let Some(ui) = weak.upgrade() {
                     request_render(&ui, &state, &queue);
-                    ui.invoke_focus_reading();
+                    if ui.get_onboarding_complete() {
+                        ui.invoke_focus_reading();
+                    }
                 }
             },
         );
     }
+    let probe = match args
+        .iter()
+        .position(|arg| arg == "--first-run-probe")
+        .map(|i| args.get(i + 1).and_then(|value| value.to_str()))
+    {
+        None => None,
+        Some(Some("fresh")) => Some(first_run_probe::start(&ui, false)),
+        Some(Some("relaunch")) => Some(first_run_probe::start(&ui, true)),
+        Some(_) => return Err("--first-run-probe must be fresh or relaunch".into()),
+    };
     slint::run_event_loop()?;
     qa_timer.stop();
     controller.finish(&ui, &state);
@@ -4075,6 +4153,9 @@ fn run() -> Result<()> {
     search_timer.stop();
     queue.stop();
     let _ = ui.hide();
+    if let Some(error) = probe.and_then(|probe| probe.failure()) {
+        return Err(error.into());
+    }
     if let Some(qa) = &qa {
         if !qa.borrow().done && failure.borrow().is_none() {
             *failure.borrow_mut() = Some("QA closed before completion".into());

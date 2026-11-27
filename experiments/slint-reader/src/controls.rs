@@ -799,11 +799,18 @@ impl Controller {
         if inner.qa {
             return;
         }
+        let started = Instant::now();
         let result = if let Some(profile) = inner.profile.borrow_mut().as_mut() {
             profile.replace(prefs, &inner.surahs)
         } else {
             return;
         };
+        if crate::portable_render::timing_enabled() {
+            eprintln!(
+                "[timing] preferences saved in {:.1} ms",
+                started.elapsed().as_secs_f64() * 1000.
+            );
+        }
         if result.is_ok() && ui.get_session_only() {
             ui.set_session_only(false);
             ui.set_session_reason("".into());
