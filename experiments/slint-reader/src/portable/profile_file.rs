@@ -34,7 +34,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&temporary)?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        flush(&file)?;
         Ok(())
     })();
     if let Err(error) = written {
@@ -46,8 +46,28 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         return Err(error.into());
     }
     // The rename itself is durable once the directory is synced.
-    File::open(directory)?.sync_all()?;
+    flush(&File::open(directory)?)?;
     Ok(())
+}
+
+/// Writes the file through to the drive. On macOS `sync_all` asks for
+/// F_FULLFSYNC, which also empties the drive's own cache and can hold the
+/// interface for a long time when the disk is busy; a save runs on the UI
+/// thread, twice per change. Plain fsync still keeps the rename after the data
+/// if the app or the system crashes, which is what a settings file needs.
+fn flush(file: &File) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: the descriptor belongs to `file`, which outlives the call.
+        if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    file.sync_all()
 }
 
 #[cfg(test)]
