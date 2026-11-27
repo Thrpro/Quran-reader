@@ -2361,8 +2361,15 @@ impl Qa {
                     if !ui.invoke_choose_result(index as i32) {
                         return Err("Valid search result was rejected".into());
                     }
-                    // Match the actual search-result action, which dismisses the panel.
-                    ui.set_panel("".into());
+                    // A search result only highlights its verse for a while; it
+                    // must not open the tafsir by itself.
+                    if state.borrow().quiet_selection != Some((2, 255)) {
+                        return Err("Search result did not highlight 2:255".into());
+                    }
+                    // Then open its tafsir the way tapping the highlighted verse
+                    // does (PickKind::Study).
+                    state.borrow_mut().quiet_selection = None;
+                    ui.set_panel("study".into());
                     self.phase = 127;
                     self.since = Instant::now();
                 }
@@ -2457,6 +2464,17 @@ impl Qa {
                         }
                     }
                     if changed != 0 {
+                        // Keep both frames, so the change can be seen.
+                        for (name, shot) in
+                            [("drag-baseline.png", baseline), ("drag-primed.png", &now)]
+                        {
+                            png(
+                                &self.output.join(name),
+                                shot.as_bytes(),
+                                shot.width(),
+                                shot.height(),
+                            )?;
+                        }
                         return Err(format!(
                             "Before a drag moved, {changed} visible page pixels changed; first (x, y, before, now)={first:?}; imageOrigin=({x}, {y}); imageSize=({w}, {h}); progress={}; dragProgress={}; image=[{}, {}, {}, {}]",
                             ui.get_turn_progress(), ui.get_drag_progress(), ui.get_image_x(), ui.get_image_y(), ui.get_image_w(), ui.get_image_h()

@@ -768,6 +768,9 @@ export component ReaderWindow inherits Window {
        Image {
         x: 0px; y: 0px; width: root.image-w * 1px; height: root.image-h * 1px;
         source: root.book-image; image-fit: fill; opacity: root.book-opacity;
+        // While a turn prepares, the layer below draws this same face over it;
+        // drawn twice, the soft frame edge would brighten for a frame.
+        visible: !(root.turn-running && root.previous-book.width > 0 && root.turn-progress <= 0.002);
         animate opacity { duration: 100ms; enabled: root.motion-enabled; }
         accessible-label: root.arabic ? "صفحات المصحف؛ اختر آية أو اضغط بالزر الأيمن لخياراتها" : "Mushaf pages; select a verse or right-click for its actions";
        }
