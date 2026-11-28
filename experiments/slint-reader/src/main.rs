@@ -2452,7 +2452,13 @@ impl Qa {
                     for row in y..(y + h).min(now.height()) {
                         for col in x..(x + w).min(now.width()) {
                             let i = ((row * now.width() + col) * 4) as usize;
-                            if now.as_bytes()[i..i + 4] != baseline.as_bytes()[i..i + 4] {
+                            // A step of one or two shades is renderer rounding
+                            // (the Mac's corner pixel), not a visible change.
+                            let differs = now.as_bytes()[i..i + 4]
+                                .iter()
+                                .zip(&baseline.as_bytes()[i..i + 4])
+                                .any(|(a, b)| a.abs_diff(*b) > 2);
+                            if differs {
                                 changed += 1;
                                 first.get_or_insert((
                                     col,
@@ -2468,12 +2474,13 @@ impl Qa {
                         for (name, shot) in
                             [("drag-baseline.png", baseline), ("drag-primed.png", &now)]
                         {
-                            png(
+                            // Best effort: never hide the real failure.
+                            let _ = png(
                                 &self.output.join(name),
                                 shot.as_bytes(),
                                 shot.width(),
                                 shot.height(),
-                            )?;
+                            );
                         }
                         return Err(format!(
                             "Before a drag moved, {changed} visible page pixels changed; first (x, y, before, now)={first:?}; imageOrigin=({x}, {y}); imageSize=({w}, {h}); progress={}; dragProgress={}; image=[{}, {}, {}, {}]",
